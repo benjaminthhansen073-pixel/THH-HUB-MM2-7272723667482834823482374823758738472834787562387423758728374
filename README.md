@@ -13,6 +13,7 @@ local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
 local RbxAnalyticsService = game:GetService("RbxAnalyticsService")
 local Lighting = game:GetService("Lighting")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -79,6 +80,7 @@ local antiFling = {
 }
 
 local esp = {
+    enabled = true,
     highlights = {},
     characterConnections = {}
 }
@@ -90,7 +92,9 @@ local sheriff = {
 
 local murderer = {
     autoThrow = false,
-    throwDelay = 0.2,
+    throwing = false,
+
+    throwDelay = 0.25,
     lastThrow = 0
 }
 
@@ -247,6 +251,19 @@ local function destroyCoinPlatform()
     end
 end
 
+local function removePlayerESP(targetPlayer)
+    local highlight =
+        esp.highlights[targetPlayer]
+
+    if highlight then
+        pcall(function()
+            highlight:Destroy()
+        end)
+
+        esp.highlights[targetPlayer] = nil
+    end
+end
+
 local function clearESP()
     for _, highlight in pairs(esp.highlights) do
         if highlight then
@@ -281,10 +298,16 @@ local function cleanup()
 
     antiFling.enabled = false
 
+    esp.enabled = false
+
     sheriff.quickShot = false
+    sheriff.shooting = false
+
     murderer.autoThrow = false
+    murderer.throwing = false
 
     gunPickup.auto = false
+    gunPickup.busy = false
 
     coinFarm.enabled = false
     coinFarm.busy = false
@@ -336,6 +359,8 @@ track(player.CharacterAdded:Connect(function()
 
     coinFarm.busy = false
     gunPickup.busy = false
+    sheriff.shooting = false
+    murderer.throwing = false
 end))
 
 local function makeDraggable(frame, handle)
@@ -365,9 +390,7 @@ local function makeDraggable(frame, handle)
     end))
 
     track(UserInputService.InputChanged:Connect(function(input)
-        if not dragging
-            or input ~= dragInput then
-
+        if not dragging or input ~= dragInput then
             return
         end
 
@@ -544,21 +567,9 @@ local function getRoleColor(targetPlayer)
     return Colors.Innocent
 end
 
-local function removePlayerESP(targetPlayer)
-    local highlight =
-        esp.highlights[targetPlayer]
-
-    if highlight then
-        pcall(function()
-            highlight:Destroy()
-        end)
-
-        esp.highlights[targetPlayer] = nil
-    end
-end
-
 local function addPlayerESP(targetPlayer)
-    if targetPlayer == player
+    if not esp.enabled
+        or targetPlayer == player
         or not targetPlayer.Character then
 
         return
@@ -595,7 +606,9 @@ local function addPlayerESP(targetPlayer)
 end
 
 local function setupESPPlayer(targetPlayer)
-    if targetPlayer == player then
+    if not esp.enabled
+        or targetPlayer == player then
+
         return
     end
 
@@ -614,10 +627,23 @@ local function setupESPPlayer(targetPlayer)
 
             task.wait(0.1)
 
-            if alive then
+            if alive and esp.enabled then
                 addPlayerESP(targetPlayer)
             end
         end)
+end
+
+local function enableESP()
+    esp.enabled = true
+
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
+        setupESPPlayer(targetPlayer)
+    end
+end
+
+local function disableESP()
+    esp.enabled = false
+    clearESP()
 end
 
 for _, targetPlayer in ipairs(Players:GetPlayers()) do
@@ -625,7 +651,9 @@ for _, targetPlayer in ipairs(Players:GetPlayers()) do
 end
 
 track(Players.PlayerAdded:Connect(function(targetPlayer)
-    setupESPPlayer(targetPlayer)
+    if esp.enabled then
+        setupESPPlayer(targetPlayer)
+    end
 end))
 
 track(Players.PlayerRemoving:Connect(function(targetPlayer)
@@ -644,30 +672,32 @@ end))
 
 task.spawn(function()
     while alive do
-        for _, targetPlayer in ipairs(Players:GetPlayers()) do
-            if targetPlayer ~= player
-                and targetPlayer.Character then
+        if esp.enabled then
+            for _, targetPlayer in ipairs(Players:GetPlayers()) do
+                if targetPlayer ~= player
+                    and targetPlayer.Character then
 
-                local highlight =
-                    esp.highlights[targetPlayer]
-
-                if not highlight
-                    or not highlight.Parent
-                    or highlight.Adornee ~= targetPlayer.Character then
-
-                    addPlayerESP(targetPlayer)
-
-                    highlight =
+                    local highlight =
                         esp.highlights[targetPlayer]
-                end
 
-                if highlight then
-                    local color =
-                        getRoleColor(targetPlayer)
+                    if not highlight
+                        or not highlight.Parent
+                        or highlight.Adornee ~= targetPlayer.Character then
 
-                    highlight.FillColor = color
-                    highlight.OutlineColor = color
-                    highlight.Enabled = true
+                        addPlayerESP(targetPlayer)
+
+                        highlight =
+                            esp.highlights[targetPlayer]
+                    end
+
+                    if highlight then
+                        local color =
+                            getRoleColor(targetPlayer)
+
+                        highlight.FillColor = color
+                        highlight.OutlineColor = color
+                        highlight.Enabled = true
+                    end
                 end
             end
         end
@@ -783,8 +813,122 @@ track(UserInputService.InputBegan:Connect(function(
     end
 end))
 
+local function pressThrowKey()
+    if UserInputService:GetFocusedTextBox() then
+        return false
+    end
+
+    if keypress and keyrelease then
+        local success =
+            pcall(function()
+                keypress(0x45)
+                task.wait(0.08)
+                keyrelease(0x45)
+            end)
+
+        if success then
+            return true
+        end
+    end
+
+    local success =
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(
+                true,
+                Enum.KeyCode.E,
+                false,
+                game
+            )
+
+            task.wait(0.08)
+
+            VirtualInputManager:SendKeyEvent(
+                false,
+                Enum.KeyCode.E,
+                false,
+                game
+            )
+        end)
+
+    return success
+end
+
+local function findVisibleThrowButton()
+    local playerGui =
+        player:FindFirstChildOfClass("PlayerGui")
+
+    if not playerGui then
+        return nil
+    end
+
+    for _, object in ipairs(playerGui:GetDescendants()) do
+        if object:IsA("GuiButton")
+            and object.Visible then
+
+            local name =
+                string.lower(object.Name)
+
+            local text = ""
+
+            if object:IsA("TextButton") then
+                text =
+                    string.lower(object.Text or "")
+            end
+
+            if name:find("throw", 1, true)
+                or text:find("throw", 1, true) then
+
+                return object
+            end
+        end
+    end
+
+    return nil
+end
+
+local function pressMobileThrowButton()
+    local button =
+        findVisibleThrowButton()
+
+    if not button then
+        return false
+    end
+
+    local center =
+        button.AbsolutePosition
+        + button.AbsoluteSize / 2
+
+    local success =
+        pcall(function()
+            VirtualInputManager:
+                SendMouseButtonEvent(
+                    center.X,
+                    center.Y,
+                    0,
+                    true,
+                    game,
+                    0
+                )
+
+            task.wait(0.04)
+
+            VirtualInputManager:
+                SendMouseButtonEvent(
+                    center.X,
+                    center.Y,
+                    0,
+                    false,
+                    game,
+                    0
+                )
+        end)
+
+    return success
+end
+
 local function throwKnifeOnce()
-    if not humanoid
+    if murderer.throwing
+        or not humanoid
         or not character then
 
         return false
@@ -797,21 +941,36 @@ local function throwKnifeOnce()
         return false
     end
 
+    murderer.throwing = true
+
+    local success = false
+
     if knife.Parent ~= character then
         pcall(function()
             humanoid:EquipTool(knife)
         end)
 
         RunService.Heartbeat:Wait()
+        RunService.Heartbeat:Wait()
     end
 
     if knife.Parent == character then
-        return pcall(function()
-            knife:Activate()
-        end)
+        success =
+            pressThrowKey()
+
+        if not success
+            and UserInputService.TouchEnabled then
+
+            success =
+                pressMobileThrowButton()
+        end
     end
 
-    return false
+    task.wait(0.05)
+
+    murderer.throwing = false
+
+    return success
 end
 
 local function findGunDrop()
@@ -956,7 +1115,7 @@ local function pickupGun()
                 part.CFrame
                 * CFrame.new(
                     0,
-                    0.5,
+                    0.35,
                     0
                 )
 
@@ -1066,10 +1225,7 @@ local function coinExists(coin)
     return coin
         and coin.Parent
         and coin:IsDescendantOf(workspace)
-        and (
-            not coin:IsA("BasePart")
-            or coin.Transparency < 0.95
-        )
+        and coin.Transparency < 0.95
 end
 
 local function getNearestCoin()
@@ -1255,20 +1411,61 @@ local function waitForCoinPickup(coin)
     return not coinExists(coin)
 end
 
-local function getTextValue(object)
-    if object:IsA("TextLabel")
-        or object:IsA("TextButton")
-        or object:IsA("TextBox") then
+local function isGuiActuallyVisible(guiObject)
+    if not guiObject
+        or not guiObject:IsA("GuiObject")
+        or not guiObject.Visible then
 
-        return tostring(
-            object.Text or ""
-        )
+        return false
     end
 
-    return nil
+    if guiObject.AbsoluteSize.X <= 0
+        or guiObject.AbsoluteSize.Y <= 0 then
+
+        return false
+    end
+
+    local current =
+        guiObject
+
+    while current do
+        if current:IsA("GuiObject")
+            and not current.Visible then
+
+            return false
+        end
+
+        if current:IsA("ScreenGui")
+            and not current.Enabled then
+
+            return false
+        end
+
+        current =
+            current.Parent
+    end
+
+    local position =
+        guiObject.AbsolutePosition
+
+    local size =
+        guiObject.AbsoluteSize
+
+    local viewport =
+        camera.ViewportSize
+
+    if position.X + size.X <= 0
+        or position.Y + size.Y <= 0
+        or position.X >= viewport.X
+        or position.Y >= viewport.Y then
+
+        return false
+    end
+
+    return true
 end
 
-local function findCoinBagFullPopup()
+local function findVisibleCoinBagFullText()
     local playerGui =
         player:
             FindFirstChildOfClass(
@@ -1280,19 +1477,31 @@ local function findCoinBagFullPopup()
     end
 
     for _, object in ipairs(playerGui:GetDescendants()) do
-        local text =
-            getTextValue(object)
+        if object:IsA("TextLabel")
+            or object:IsA("TextButton")
+            or object:IsA("TextBox") then
 
-        if text then
+            local text =
+                tostring(
+                    object.Text or ""
+                )
+
             local normalized =
                 string.lower(text)
                 :gsub("%s+", "")
+                :gsub("[^%w]", "")
 
-            if normalized:find(
-                "coinbagfull",
-                1,
-                true
-            ) then
+            local saysBagFull =
+                normalized:find(
+                    "coinbagfull",
+                    1,
+                    true
+                )
+                ~= nil
+
+            if saysBagFull
+                and object.TextTransparency < 0.95
+                and isGuiActuallyVisible(object) then
 
                 return object
             end
@@ -1309,29 +1518,52 @@ local function handleCoinBagFull()
         return
     end
 
-    local popup =
-        findCoinBagFullPopup()
+    local bagFullText =
+        findVisibleCoinBagFullText()
 
-    if not popup then
+    if not bagFullText then
         return
     end
 
-    coinFarm.fullBagDebounce = true
+    coinFarm.fullBagDebounce =
+        true
 
-    pcall(function()
-        popup:Destroy()
-    end)
+    coinFarm.busy =
+        false
+
+    coinFarm.target =
+        nil
 
     destroyCoinPlatform()
 
-    if humanoid then
+    pcall(function()
+        bagFullText:Destroy()
+    end)
+
+    if humanoid
+        and humanoid.Health > 0 then
+
         pcall(function()
             humanoid.Health = 0
         end)
     end
 
-    task.delay(2, function()
-        coinFarm.fullBagDebounce = false
+    task.spawn(function()
+        local newCharacter =
+            player.CharacterAdded:Wait()
+
+        if not alive then
+            return
+        end
+
+        task.wait(0.35)
+
+        if player.Character == newCharacter then
+            refreshCharacter()
+        end
+
+        coinFarm.fullBagDebounce =
+            false
     end)
 end
 
@@ -1341,7 +1573,7 @@ task.spawn(function()
             handleCoinBagFull()
         end
 
-        task.wait(0.08)
+        task.wait(0.05)
     end
 end)
 
@@ -1432,6 +1664,7 @@ track(RunService.Heartbeat:Connect(function(dt)
     if movement.speedEnabled then
         humanoid.WalkSpeed =
             movement.speed
+
     elseif humanoid.WalkSpeed ~= originalWalkSpeed then
         humanoid.WalkSpeed =
             originalWalkSpeed
@@ -1450,13 +1683,16 @@ track(RunService.Heartbeat:Connect(function(dt)
     end
 
     if murderer.autoThrow
+        and not murderer.throwing
         and os.clock() - murderer.lastThrow
             >= murderer.throwDelay then
 
         murderer.lastThrow =
             os.clock()
 
-        throwKnifeOnce()
+        task.spawn(
+            throwKnifeOnce
+        )
     end
 end))
 
@@ -1477,9 +1713,7 @@ local function loadVampauth()
     local success, result =
         pcall(function()
             if not loadstring then
-                error(
-                    "loadstring unavailable"
-                )
+                error("loadstring unavailable")
             end
 
             local source =
@@ -1491,9 +1725,7 @@ local function loadVampauth()
                 loadstring(source)
 
             if not loader then
-                error(
-                    "Vampauth failed"
-                )
+                error("Vampauth failed")
             end
 
             return loader()
@@ -4393,7 +4625,9 @@ buildMainMenu = function(deviceMode)
         murdererSection,
         "Throw Knife",
         function()
-            throwKnifeOnce()
+            task.spawn(
+                throwKnifeOnce
+            )
         end
     )
 
@@ -4407,46 +4641,37 @@ buildMainMenu = function(deviceMode)
         end
     )
 
+    createSlider(
+        murdererSection,
+        "Throw Delay",
+        15,
+        100,
+        math.floor(
+            murderer.throwDelay * 100
+        ),
+        function(value)
+            murderer.throwDelay =
+                value / 100
+        end
+    )
+
     local innocentESP =
         section(
             InnocentPage,
             "ESP"
         )
 
-    local espLabel = create("TextLabel", {
-        Size =
-            UDim2.new(
-                1,
-                0,
-                0,
-                compactHeight
-            ),
-
-        BackgroundColor3 =
-            Colors.Control,
-
-        BackgroundTransparency =
-            0.08,
-
-        BorderSizePixel =
-            0,
-
-        Text =
-            "ESP    ON",
-
-        TextColor3 =
-            Colors.Accent,
-
-        TextSize =
-            isPhone and 10 or 12,
-
-        Font =
-            Enum.Font.GothamMedium
-    }, innocentESP)
-
-    addCorner(
-        espLabel,
-        8
+    createToggle(
+        innocentESP,
+        "ESP",
+        esp.enabled,
+        function(value)
+            if value then
+                enableESP()
+            else
+                disableESP()
+            end
+        end
     )
 
     local gunSection =
@@ -4717,19 +4942,17 @@ buildMainMenu = function(deviceMode)
     createUpdateCard(
         UpdatesPage,
         {
+            "knife throw now uses the actual throw input",
+            "throw knife doesnt use the normal swing anymore",
+            "auto throw uses the same real throw action",
+            "esp can be turned on and off again",
+            "esp comes back when players respawn",
+            "coin bag reset only works when the text is actually visible",
+            "hidden or transparent bag text wont reset you",
             "added anti fling",
-            "anti fling turns off collision on every other player",
-            "anti fling includes accessory parts too",
-            "added coin grab",
-            "coin farm uses MainCoin",
-            "farm speed is 22",
-            "far coins over 400 studs get tp'd to",
-            "added the fly platform",
-            "added picked up coin counter",
-            "coin bag full resets you only when farm is on",
-            "esp stays on after people respawn",
-            "phone ui is smaller and has no scroll bars",
-            "cleaned the gray glass ui up"
+            "anti fling removes other player collision",
+            "coin farm still uses MainCoin",
+            "coin farm speed is still 22"
         }
     )
 
