@@ -13,6 +13,7 @@ local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
 local RbxAnalyticsService = game:GetService("RbxAnalyticsService")
 local Lighting = game:GetService("Lighting")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
 
 local VirtualInputManager
 
@@ -154,6 +155,28 @@ local safety = {
     descendantConnection = nil,
 
     cameraOffset = Vector3.zero
+}
+
+local nvis = {
+    enabled = false,
+    saved = {},
+    descendantConnection = nil
+}
+
+local zeroGrab = {
+    enabled = false,
+    containers = {},
+    savedValues = {},
+    savedAttachments = {},
+    lastScan = 0
+}
+
+local grabNoFall = {
+    enabled = false,
+    platform = nil,
+    connection = nil,
+    safeY = nil,
+    size = Vector3.new(7, 0.45, 7)
 }
 
 local throwKnifeOnce
@@ -983,56 +1006,422 @@ local function clearESP()
     )
 end
 
+local function disconnectNvisWatcher()
+    if nvis.descendantConnection then
+        pcall(function()
+            nvis.descendantConnection:Disconnect()
+        end)
+
+        nvis.descendantConnection = nil
+    end
+end
+
+local function applyNvisObject(object)
+    if object:IsA("BasePart") then
+        if nvis.saved[object] == nil then
+            nvis.saved[object] = {
+                kind = "BasePart",
+                value = object.LocalTransparencyModifier
+            }
+        end
+
+        object.LocalTransparencyModifier = 1
+
+    elseif object:IsA("Decal")
+        or object:IsA("Texture") then
+
+        if nvis.saved[object] == nil then
+            nvis.saved[object] = {
+                kind = "Texture",
+                value = object.Transparency
+            }
+        end
+
+        object.Transparency = 1
+    end
+end
+
+local function applyNvisCharacter()
+    disconnectNvisWatcher()
+    table.clear(nvis.saved)
+
+    if not nvis.enabled
+        or not character then
+
+        return
+    end
+
+    for _, object in ipairs(character:GetDescendants()) do
+        applyNvisObject(object)
+    end
+
+    nvis.descendantConnection =
+        character.DescendantAdded:Connect(function(object)
+            if not nvis.enabled then
+                return
+            end
+
+            task.defer(function()
+                if object.Parent then
+                    applyNvisObject(object)
+                end
+            end)
+        end)
+end
+
+local function enableNvis()
+    nvis.enabled = true
+    applyNvisCharacter()
+end
+
+local function disableNvis()
+    nvis.enabled = false
+    disconnectNvisWatcher()
+
+    for object, info in pairs(nvis.saved) do
+        if object and object.Parent then
+            pcall(function()
+                if info.kind == "BasePart" then
+                    object.LocalTransparencyModifier = info.value
+                else
+                    object.Transparency = info.value
+                end
+            end)
+        end
+    end
+
+    table.clear(nvis.saved)
+end
+
+local function isGrabDistanceValueName(name)
+    name = string.lower(tostring(name or ""))
+
+    return name == "distance"
+        or name == "grabdistance"
+        or name == "dragdistance"
+        or name == "currentdistance"
+        or name == "mindistance"
+        or name == "targetdistance"
+end
+
+local function rememberAndZeroGrabValues(container)
+    for _, object in ipairs(container:GetDescendants()) do
+        if (object:IsA("NumberValue") or object:IsA("IntValue"))
+            and isGrabDistanceValueName(object.Name) then
+
+            if zeroGrab.savedValues[object] == nil then
+                zeroGrab.savedValues[object] = object.Value
+            end
+
+            object.Value = 0
+
+        elseif object:IsA("Attachment")
+            and string.lower(object.Name) == "dragattach" then
+
+            if zeroGrab.savedAttachments[object] == nil then
+                zeroGrab.savedAttachments[object] = object.Position
+            end
+
+            object.Position = Vector3.zero
+        end
+    end
+end
+
+local function scanGrabContainers()
+    table.clear(zeroGrab.containers)
+
+    local seen = {}
+
+    local function scan(root)
+        if not root then
+            return
+        end
+
+        if string.lower(root.Name) == "grabparts"
+            and not seen[root] then
+
+            seen[root] = true
+            table.insert(zeroGrab.containers, root)
+        end
+
+        for _, object in ipairs(root:GetDescendants()) do
+            if string.lower(object.Name) == "grabparts"
+                and not seen[object] then
+
+                seen[object] = true
+                table.insert(zeroGrab.containers, object)
+            end
+        end
+    end
+
+    scan(workspace)
+    scan(ReplicatedFirst)
+
+    for _, container in ipairs(zeroGrab.containers) do
+        rememberAndZeroGrabValues(container)
+    end
+end
+
+local function enforceZeroGrab()
+    if not zeroGrab.enabled then
+        return
+    end
+
+    local camera = workspace.CurrentCamera
+
+    if not camera then
+        return
+    end
+
+    local now = os.clock()
+
+    if now - zeroGrab.lastScan >= 0.45 then
+        zeroGrab.lastScan = now
+        scanGrabContainers()
+    end
+
+    for _, container in ipairs(zeroGrab.containers) do
+        if container and container.Parent then
+            rememberAndZeroGrabValues(container)
+
+            local dragPart =
+                container:FindFirstChild("DragPart", true)
+
+            local dragAttach =
+                container:FindFirstChild("DragAttach", true)
+
+            if dragPart and dragPart:IsA("BasePart") then
+                pcall(function()
+                    dragPart.CFrame = camera.CFrame
+                    dragPart.AssemblyLinearVelocity = Vector3.zero
+                    dragPart.AssemblyAngularVelocity = Vector3.zero
+                end)
+            end
+
+            if dragAttach and dragAttach:IsA("Attachment") then
+                dragAttach.Position = Vector3.zero
+            end
+        end
+    end
+end
+
+local function enableZeroGrab()
+    zeroGrab.enabled = true
+    zeroGrab.lastScan = 0
+    scanGrabContainers()
+
+    pcall(function()
+        RunService:UnbindFromRenderStep("THH_ZERO_GRAB")
+    end)
+
+    RunService:BindToRenderStep(
+        "THH_ZERO_GRAB",
+        Enum.RenderPriority.Camera.Value + 50,
+        enforceZeroGrab
+    )
+end
+
+local function disableZeroGrab()
+    zeroGrab.enabled = false
+
+    pcall(function()
+        RunService:UnbindFromRenderStep("THH_ZERO_GRAB")
+    end)
+
+    for object, oldValue in pairs(zeroGrab.savedValues) do
+        if object and object.Parent then
+            pcall(function()
+                object.Value = oldValue
+            end)
+        end
+    end
+
+    for attachment, oldPosition in pairs(zeroGrab.savedAttachments) do
+        if attachment and attachment.Parent then
+            pcall(function()
+                attachment.Position = oldPosition
+            end)
+        end
+    end
+
+    table.clear(zeroGrab.savedValues)
+    table.clear(zeroGrab.savedAttachments)
+    table.clear(zeroGrab.containers)
+end
+
+local function destroyGrabNoFallRuntime()
+    if grabNoFall.connection then
+        pcall(function()
+            grabNoFall.connection:Disconnect()
+        end)
+
+        grabNoFall.connection = nil
+    end
+
+    if grabNoFall.platform then
+        pcall(function()
+            grabNoFall.platform:Destroy()
+        end)
+
+        grabNoFall.platform = nil
+    end
+
+    grabNoFall.safeY = nil
+end
+
+local function getCurrentFootY()
+    if not humanoid or not rootPart then
+        return nil
+    end
+
+    return rootPart.Position.Y
+        - humanoid.HipHeight
+        - rootPart.Size.Y / 2
+end
+
+local function findGroundY()
+    if not character or not rootPart then
+        return nil
+    end
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.IgnoreWater = true
+
+    local ignore = { character }
+
+    if grabNoFall.platform then
+        table.insert(ignore, grabNoFall.platform)
+    end
+
+    params.FilterDescendantsInstances = ignore
+
+    local result = workspace:Raycast(
+        rootPart.Position + Vector3.new(0, 2, 0),
+        Vector3.new(0, -12, 0),
+        params
+    )
+
+    if result and result.Normal.Y > 0.3 then
+        return result.Position.Y
+    end
+
+    return nil
+end
+
+local function enableGrabNoFall()
+    destroyGrabNoFallRuntime()
+    grabNoFall.enabled = true
+
+    if not rootPart or not humanoid then
+        return
+    end
+
+    rootPart.Anchored = false
+    humanoid.PlatformStand = false
+    humanoid.AutoRotate = true
+
+    grabNoFall.safeY =
+        findGroundY()
+        or getCurrentFootY()
+        or rootPart.Position.Y - 3
+
+    local platform = Instance.new("Part")
+    platform.Name = "THH_GrabNoFallGround"
+    platform.Size = grabNoFall.size
+    platform.Anchored = true
+    platform.CanCollide = true
+    platform.CanTouch = false
+    platform.CanQuery = false
+    platform.Transparency = 1
+    platform.CastShadow = false
+    platform.Parent = workspace
+
+    grabNoFall.platform = platform
+
+    grabNoFall.connection = RunService.Heartbeat:Connect(function()
+        if not alive or not grabNoFall.enabled then
+            return
+        end
+
+        if not rootPart
+            or not rootPart.Parent
+            or not humanoid then
+
+            return
+        end
+
+        if rootPart.Anchored then
+            rootPart.Anchored = false
+        end
+
+        if humanoid.PlatformStand then
+            humanoid.PlatformStand = false
+        end
+
+        local groundY = findGroundY()
+
+        if groundY then
+            local verticalGap = rootPart.Position.Y - groundY
+
+            if verticalGap <= 9 then
+                grabNoFall.safeY = groundY
+            end
+        end
+
+        if not grabNoFall.safeY then
+            grabNoFall.safeY =
+                getCurrentFootY()
+                or rootPart.Position.Y - 3
+        end
+
+        if platform and platform.Parent then
+            platform.CFrame = CFrame.new(
+                rootPart.Position.X,
+                grabNoFall.safeY - platform.Size.Y / 2,
+                rootPart.Position.Z
+            )
+        end
+    end)
+end
+
+local function disableGrabNoFall()
+    grabNoFall.enabled = false
+    destroyGrabNoFallRuntime()
+end
+
 local function cleanup()
     if not alive then
         return
     end
 
-    alive =
-        false
+    alive = false
 
-    movement.speedEnabled =
-        false
-
-    movement.infiniteJump =
-        false
-
-    movement.noclip =
-        false
-
-    movement.spin =
-        false
+    movement.speedEnabled = false
+    movement.infiniteJump = false
+    movement.noclip = false
+    movement.spin = false
 
     destroySpinController()
     disableAntiFling()
     disableUnderground(false)
+    disableNvis()
+    disableZeroGrab()
+    disableGrabNoFall()
 
-    esp.enabled =
-        false
+    esp.enabled = false
 
-    sheriff.quickShot =
-        false
+    sheriff.quickShot = false
+    sheriff.shooting = false
 
-    sheriff.shooting =
-        false
+    murderer.autoThrow = false
+    murderer.throwing = false
 
-    murderer.autoThrow =
-        false
+    gunPickup.auto = false
+    gunPickup.busy = false
 
-    murderer.throwing =
-        false
-
-    gunPickup.auto =
-        false
-
-    gunPickup.busy =
-        false
-
-    coinFarm.enabled =
-        false
-
-    coinFarm.busy =
-        false
+    coinFarm.enabled = false
+    coinFarm.busy = false
 
     restoreNoclip()
     restoreCoinCollision()
@@ -1042,11 +1431,8 @@ local function cleanup()
 
     if humanoid then
         pcall(function()
-            humanoid.WalkSpeed =
-                originalWalkSpeed
-
-            humanoid.CameraOffset =
-                Vector3.zero
+            humanoid.WalkSpeed = originalWalkSpeed
+            humanoid.CameraOffset = Vector3.zero
         end)
     end
 
@@ -1056,9 +1442,7 @@ local function cleanup()
         end)
     end
 
-    table.clear(
-        connections
-    )
+    table.clear(connections)
 
     if blur then
         pcall(function()
@@ -1073,21 +1457,16 @@ local function cleanup()
     end
 
     if _G.THHGrowersCleanup == cleanup then
-        _G.THHGrowersCleanup =
-            nil
+        _G.THHGrowersCleanup = nil
     end
 end
 
-_G.THHGrowersCleanup =
-    cleanup
+_G.THHGrowersCleanup = cleanup
 
 local function makeDraggable(frame, handle)
-    handle =
-        handle or frame
+    handle = handle or frame
 
-    local dragging =
-        false
-
+    local dragging = false
     local dragInput
     local dragStart
     local frameStart
@@ -1096,14 +1475,9 @@ local function makeDraggable(frame, handle)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
 
-            dragging =
-                true
-
-            dragStart =
-                input.Position
-
-            frameStart =
-                frame.Position
+            dragging = true
+            dragStart = input.Position
+            frameStart = frame.Position
         end
     end))
 
@@ -1111,27 +1485,21 @@ local function makeDraggable(frame, handle)
         if input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch then
 
-            dragInput =
-                input
+            dragInput = input
         end
     end))
 
     track(UserInputService.InputChanged:Connect(function(input)
-        if not dragging
-            or input ~= dragInput then
-
+        if not dragging or input ~= dragInput then
             return
         end
 
-        local delta =
-            input.Position
-            - dragStart
+        local delta = input.Position - dragStart
 
         frame.Position =
             UDim2.new(
                 frameStart.X.Scale,
                 frameStart.X.Offset + delta.X,
-
                 frameStart.Y.Scale,
                 frameStart.Y.Offset + delta.Y
             )
@@ -1141,15 +1509,13 @@ local function makeDraggable(frame, handle)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
 
-            dragging =
-                false
+            dragging = false
         end
     end))
 end
 
 local function animateButton(button)
-    local normal =
-        button.BackgroundColor3
+    local normal = button.BackgroundColor3
 
     local hover =
         Color3.new(
@@ -1160,25 +1526,15 @@ local function animateButton(button)
 
     if UserInputService.MouseEnabled then
         track(button.MouseEnter:Connect(function()
-            tween(
-                button,
-                0.14,
-                {
-                    BackgroundColor3 =
-                        hover
-                }
-            )
+            tween(button, 0.14, {
+                BackgroundColor3 = hover
+            })
         end))
 
         track(button.MouseLeave:Connect(function()
-            tween(
-                button,
-                0.14,
-                {
-                    BackgroundColor3 =
-                        normal
-                }
-            )
+            tween(button, 0.14, {
+                BackgroundColor3 = normal
+            })
         end))
     end
 end
@@ -1188,13 +1544,9 @@ local function findTool(targetPlayer, wantedName)
         return nil
     end
 
-    wantedName =
-        string.lower(
-            wantedName
-        )
+    wantedName = string.lower(wantedName)
 
-    local targetCharacter =
-        targetPlayer.Character
+    local targetCharacter = targetPlayer.Character
 
     if targetCharacter then
         for _, object in ipairs(targetCharacter:GetChildren()) do
@@ -1223,48 +1575,32 @@ local function findTool(targetPlayer, wantedName)
 end
 
 local function hasKnife(targetPlayer)
-    return findTool(
-        targetPlayer,
-        "Knife"
-    ) ~= nil
+    return findTool(targetPlayer, "Knife") ~= nil
 end
 
 local function hasGun(targetPlayer)
-    if findTool(
-        targetPlayer,
-        "Gun"
-    ) then
-
+    if findTool(targetPlayer, "Gun") then
         return true
     end
 
-    local containers =
-        {}
+    local containers = {}
 
     if targetPlayer.Character then
-        table.insert(
-            containers,
-            targetPlayer.Character
-        )
+        table.insert(containers, targetPlayer.Character)
     end
 
     local backpack =
         targetPlayer:FindFirstChildOfClass("Backpack")
 
     if backpack then
-        table.insert(
-            containers,
-            backpack
-        )
+        table.insert(containers, backpack)
     end
 
     for _, container in ipairs(containers) do
         for _, object in ipairs(container:GetChildren()) do
             if object:IsA("Tool") then
                 local lower =
-                    string.lower(
-                        object.Name
-                    )
+                    string.lower(object.Name)
 
                 if lower:find("gun", 1, true)
                     or lower:find("revolver", 1, true) then
@@ -1298,45 +1634,29 @@ local function addPlayerESP(targetPlayer)
         return
     end
 
-    removePlayerESP(
-        targetPlayer
-    )
+    removePlayerESP(targetPlayer)
 
     local highlight =
         Instance.new("Highlight")
 
     highlight.Name =
-        "THH_ESP_"
-        .. targetPlayer.Name
+        "THH_ESP_" .. targetPlayer.Name
 
     highlight.DepthMode =
         Enum.HighlightDepthMode.AlwaysOnTop
 
-    highlight.FillTransparency =
-        0.77
-
-    highlight.OutlineTransparency =
-        0
+    highlight.FillTransparency = 0.77
+    highlight.OutlineTransparency = 0
 
     local color =
-        getRoleColor(
-            targetPlayer
-        )
+        getRoleColor(targetPlayer)
 
-    highlight.FillColor =
-        color
+    highlight.FillColor = color
+    highlight.OutlineColor = color
+    highlight.Adornee = targetPlayer.Character
+    highlight.Parent = targetPlayer.Character
 
-    highlight.OutlineColor =
-        color
-
-    highlight.Adornee =
-        targetPlayer.Character
-
-    highlight.Parent =
-        targetPlayer.Character
-
-    esp.highlights[targetPlayer] =
-        highlight
+    esp.highlights[targetPlayer] = highlight
 end
 
 local function setupESPPlayer(targetPlayer)
@@ -1345,9 +1665,7 @@ local function setupESPPlayer(targetPlayer)
     end
 
     if esp.enabled then
-        addPlayerESP(
-            targetPlayer
-        )
+        addPlayerESP(targetPlayer)
     end
 
     if esp.characterConnections[targetPlayer] then
@@ -1358,36 +1676,26 @@ local function setupESPPlayer(targetPlayer)
 
     esp.characterConnections[targetPlayer] =
         targetPlayer.CharacterAdded:Connect(function()
-            removePlayerESP(
-                targetPlayer
-            )
+            removePlayerESP(targetPlayer)
 
             task.wait(0.1)
 
-            if alive
-                and esp.enabled then
-
-                addPlayerESP(
-                    targetPlayer
-                )
+            if alive and esp.enabled then
+                addPlayerESP(targetPlayer)
             end
         end)
 end
 
 local function enableESP()
-    esp.enabled =
-        true
+    esp.enabled = true
 
     for _, targetPlayer in ipairs(Players:GetPlayers()) do
-        setupESPPlayer(
-            targetPlayer
-        )
+        setupESPPlayer(targetPlayer)
     end
 end
 
 local function disableESP()
-    esp.enabled =
-        false
+    esp.enabled = false
 
     for _, highlight in pairs(esp.highlights) do
         if highlight then
@@ -1397,36 +1705,26 @@ local function disableESP()
         end
     end
 
-    table.clear(
-        esp.highlights
-    )
+    table.clear(esp.highlights)
 end
 
 for _, targetPlayer in ipairs(Players:GetPlayers()) do
-    setupESPPlayer(
-        targetPlayer
-    )
+    setupESPPlayer(targetPlayer)
 end
 
 track(Players.PlayerAdded:Connect(function(targetPlayer)
-    setupESPPlayer(
-        targetPlayer
-    )
+    setupESPPlayer(targetPlayer)
 end))
 
 track(Players.PlayerRemoving:Connect(function(targetPlayer)
-    removePlayerESP(
-        targetPlayer
-    )
+    removePlayerESP(targetPlayer)
 
     local connection =
         esp.characterConnections[targetPlayer]
 
     if connection then
         connection:Disconnect()
-
-        esp.characterConnections[targetPlayer] =
-            nil
+        esp.characterConnections[targetPlayer] = nil
     end
 end))
 
@@ -1444,25 +1742,16 @@ task.spawn(function()
                         or not highlight.Parent
                         or highlight.Adornee ~= targetPlayer.Character then
 
-                        addPlayerESP(
-                            targetPlayer
-                        )
-
-                        highlight =
-                            esp.highlights[targetPlayer]
+                        addPlayerESP(targetPlayer)
+                        highlight = esp.highlights[targetPlayer]
                     end
 
                     if highlight then
                         local color =
-                            getRoleColor(
-                                targetPlayer
-                            )
+                            getRoleColor(targetPlayer)
 
-                        highlight.FillColor =
-                            color
-
-                        highlight.OutlineColor =
-                            color
+                        highlight.FillColor = color
+                        highlight.OutlineColor = color
                     end
                 end
             end
@@ -1474,10 +1763,7 @@ end)
 
 local function getGunTool()
     local exact =
-        findTool(
-            player,
-            "Gun"
-        )
+        findTool(player, "Gun")
 
     if exact then
         return exact
@@ -1496,9 +1782,7 @@ local function getGunTool()
             for _, object in ipairs(container:GetChildren()) do
                 if object:IsA("Tool") then
                     local lower =
-                        string.lower(
-                            object.Name
-                        )
+                        string.lower(object.Name)
 
                     if lower:find("gun", 1, true)
                         or lower:find("revolver", 1, true) then
@@ -1513,53 +1797,282 @@ local function getGunTool()
     return nil
 end
 
+-- ============================================================
+-- AIM BOT
+-- Finds the alive player with Knife.
+-- Equips Gun -> aims -> activates Gun -> unequips Gun.
+-- ============================================================
+
+local function getMurdererPlayer()
+    local bestPlayer = nil
+    local bestDistance = math.huge
+
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
+        if targetPlayer ~= player
+            and hasKnife(targetPlayer)
+            and targetPlayer.Character then
+
+            local targetHumanoid =
+                targetPlayer.Character:FindFirstChildOfClass(
+                    "Humanoid"
+                )
+
+            local targetRoot =
+                targetPlayer.Character:FindFirstChild(
+                    "HumanoidRootPart"
+                )
+                or targetPlayer.Character:FindFirstChild(
+                    "UpperTorso"
+                )
+                or targetPlayer.Character:FindFirstChild(
+                    "Torso"
+                )
+                or targetPlayer.Character:FindFirstChild(
+                    "Head"
+                )
+
+            if targetHumanoid
+                and targetHumanoid.Health > 0
+                and targetRoot then
+
+                local distance = 0
+
+                if rootPart and rootPart.Parent then
+                    distance =
+                        (
+                            targetRoot.Position
+                            - rootPart.Position
+                        ).Magnitude
+                end
+
+                if not bestPlayer
+                    or distance < bestDistance then
+
+                    bestPlayer = targetPlayer
+                    bestDistance = distance
+                end
+            end
+        end
+    end
+
+    return bestPlayer
+end
+
+local function getMurdererAimPart(targetPlayer)
+    if not targetPlayer
+        or not targetPlayer.Character then
+
+        return nil
+    end
+
+    return targetPlayer.Character:FindFirstChild("Head")
+        or targetPlayer.Character:FindFirstChild(
+            "HumanoidRootPart"
+        )
+        or targetPlayer.Character:FindFirstChild(
+            "UpperTorso"
+        )
+        or targetPlayer.Character:FindFirstChild(
+            "Torso"
+        )
+end
+
+local function aimAtMurderer(targetPart)
+    if not targetPart
+        or not targetPart.Parent then
+
+        return false
+    end
+
+    local camera =
+        workspace.CurrentCamera
+
+    if not camera then
+        return false
+    end
+
+    local cameraPosition =
+        camera.CFrame.Position
+
+    pcall(function()
+        camera.CFrame =
+            CFrame.lookAt(
+                cameraPosition,
+                targetPart.Position
+            )
+    end)
+
+    if VirtualInputManager then
+        pcall(function()
+            local screenPosition, onScreen =
+                camera:WorldToViewportPoint(
+                    targetPart.Position
+                )
+
+            if onScreen then
+                VirtualInputManager:SendMouseMoveEvent(
+                    screenPosition.X,
+                    screenPosition.Y,
+                    game
+                )
+            end
+        end)
+    end
+
+    return true
+end
+
 local function quickShoot()
     if sheriff.shooting
         or not sheriff.quickShot
         or not humanoid
         or not character then
 
-        return
+        return false
+    end
+
+    local murdererPlayer =
+        getMurdererPlayer()
+
+    if not murdererPlayer then
+        return false
+    end
+
+    local targetPart =
+        getMurdererAimPart(
+            murdererPlayer
+        )
+
+    if not targetPart then
+        return false
     end
 
     local gun =
         getGunTool()
 
     if not gun then
-        return
+        return false
     end
 
-    sheriff.shooting =
-        true
+    sheriff.shooting = true
 
     task.spawn(function()
-        if gun.Parent ~= character then
-            pcall(function()
-                humanoid:EquipTool(
-                    gun
-                )
-            end)
+        local camera =
+            workspace.CurrentCamera
 
-            RunService.Heartbeat:Wait()
-        end
+        local oldCameraCFrame =
+            camera and camera.CFrame or nil
 
-        if gun.Parent == character then
+        local success, err =
             pcall(function()
+
+                -- Make sure the selected player STILL has Knife.
+                if not murdererPlayer.Parent
+                    or not murdererPlayer.Character
+                    or not hasKnife(murdererPlayer) then
+
+                    return
+                end
+
+                local targetHumanoid =
+                    murdererPlayer.Character:
+                    FindFirstChildOfClass("Humanoid")
+
+                targetPart =
+                    getMurdererAimPart(
+                        murdererPlayer
+                    )
+
+                if not targetHumanoid
+                    or targetHumanoid.Health <= 0
+                    or not targetPart then
+
+                    return
+                end
+
+                -- EQUIP GUN.
+                if gun.Parent ~= character then
+                    humanoid:EquipTool(gun)
+
+                    local equipStarted =
+                        os.clock()
+
+                    while alive
+                        and gun.Parent ~= character
+                        and os.clock() - equipStarted < 0.35 do
+
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+
+                if gun.Parent ~= character then
+                    return
+                end
+
+                -- AIM DIRECTLY AT KNIFE PLAYER.
+                aimAtMurderer(targetPart)
+
+                -- Let the gun's local code see the new aim.
+                RunService.RenderStepped:Wait()
+
+                -- Re-find position in case murderer moved.
+                if murdererPlayer.Character
+                    and hasKnife(murdererPlayer) then
+
+                    targetPart =
+                        getMurdererAimPart(
+                            murdererPlayer
+                        )
+
+                    if targetPart then
+                        aimAtMurderer(
+                            targetPart
+                        )
+                    end
+                end
+
+                -- SHOOT / USE.
                 gun:Activate()
+
+                task.wait(0.075)
+
+                pcall(function()
+                    gun:Deactivate()
+                end)
             end)
 
-            task.wait(0.06)
+        -- UNEQUIP GUN AFTER SHOOTING.
+        if humanoid
+            and humanoid.Parent
+            and gun
+            and gun.Parent == character then
 
-            if humanoid then
-                pcall(function()
-                    humanoid:UnequipTools()
-                end)
-            end
+            pcall(function()
+                humanoid:UnequipTools()
+            end)
         end
 
-        sheriff.shooting =
-            false
+        -- Restore camera.
+        if oldCameraCFrame
+            and workspace.CurrentCamera then
+
+            pcall(function()
+                workspace.CurrentCamera.CFrame =
+                    oldCameraCFrame
+            end)
+        end
+
+        sheriff.shooting = false
+
+        if not success then
+            warn(
+                "[THH Aim Bot] "
+                .. tostring(err)
+            )
+        end
     end)
+
+    return true
 end
 
 track(UserInputService.InputBegan:Connect(function(
@@ -1572,8 +2085,10 @@ track(UserInputService.InputBegan:Connect(function(
         return
     end
 
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
+    if input.UserInputType ==
+            Enum.UserInputType.MouseButton1
+        or input.UserInputType ==
+            Enum.UserInputType.Touch then
 
         quickShoot()
     end
@@ -1584,15 +2099,11 @@ local function pressThrowKey()
         return false
     end
 
-    if keypress
-        and keyrelease then
-
+    if keypress and keyrelease then
         local success =
             pcall(function()
                 keypress(0x45)
-
                 task.wait(0.05)
-
                 keyrelease(0x45)
             end)
 
@@ -1637,12 +2148,9 @@ local function findVisibleThrowButton()
             and object.Visible then
 
             local name =
-                string.lower(
-                    object.Name
-                )
+                string.lower(object.Name)
 
-            local text =
-                ""
+            local text = ""
 
             if object:IsA("TextButton") then
                 text =
@@ -1719,17 +2227,13 @@ throwKnifeOnce = function()
         return false
     end
 
-    murderer.throwing =
-        true
+    murderer.throwing = true
 
-    local success =
-        false
+    local success = false
 
     if knife.Parent ~= character then
         pcall(function()
-            humanoid:EquipTool(
-                knife
-            )
+            humanoid:EquipTool(knife)
         end)
 
         RunService.Heartbeat:Wait()
@@ -1749,8 +2253,7 @@ throwKnifeOnce = function()
 
     task.wait(0.03)
 
-    murderer.throwing =
-        false
+    murderer.throwing = false
 
     return success
 end
@@ -1778,10 +2281,7 @@ local function findInitialGunDrop()
     end
 
     for _, object in ipairs(workspace:GetDescendants()) do
-        if isGunDropName(
-            object.Name
-        ) then
-
+        if isGunDropName(object.Name) then
             return object
         end
     end
@@ -1793,19 +2293,14 @@ gunPickup.cachedDrop =
     findInitialGunDrop()
 
 track(workspace.DescendantAdded:Connect(function(object)
-    if isGunDropName(
-        object.Name
-    ) then
-
-        gunPickup.cachedDrop =
-            object
+    if isGunDropName(object.Name) then
+        gunPickup.cachedDrop = object
     end
 end))
 
 track(workspace.DescendantRemoving:Connect(function(object)
     if gunPickup.cachedDrop == object then
-        gunPickup.cachedDrop =
-            nil
+        gunPickup.cachedDrop = nil
     end
 end))
 
@@ -1827,9 +2322,7 @@ local function findGunDrop()
         )
 
     if exact then
-        gunPickup.cachedDrop =
-            exact
-
+        gunPickup.cachedDrop = exact
         return exact
     end
 
@@ -1849,9 +2342,7 @@ local function getObjectPart(object)
         local handle =
             object:FindFirstChild("Handle")
 
-        if handle
-            and handle:IsA("BasePart") then
-
+        if handle and handle:IsA("BasePart") then
             return handle
         end
     end
@@ -1892,7 +2383,9 @@ local function touchObject(object, part)
         end)
     end
 
-    for _, descendant in ipairs(object:GetDescendants()) do
+    for _, descendant in ipairs(
+        object:GetDescendants()
+    ) do
         if descendant:IsA("ProximityPrompt")
             and fireproximityprompt then
 
@@ -1918,18 +2411,13 @@ local function pickupGun()
         findGunDrop()
 
     local part =
-        getObjectPart(
-            drop
-        )
+        getObjectPart(drop)
 
-    if not drop
-        or not part then
-
+    if not drop or not part then
         return false
     end
 
-    gunPickup.busy =
-        true
+    gunPickup.busy = true
 
     local oldCFrame =
         rootPart.CFrame
@@ -1958,7 +2446,7 @@ local function pickupGun()
                 part
             )
 
-            RunService.Heartbeat:Wait()
+            task.wait(0.001)
 
             touchObject(
                 drop,
@@ -1981,8 +2469,7 @@ local function pickupGun()
             end
         end)
 
-    gunPickup.busy =
-        false
+    gunPickup.busy = false
 
     return success
 end
@@ -2035,8 +2522,7 @@ local function addCoin(coin)
         return
     end
 
-    coinFarm.coinLookup[coin] =
-        true
+    coinFarm.coinLookup[coin] = true
 
     table.insert(
         coinFarm.coins,
@@ -2049,8 +2535,7 @@ local function removeCoin(coin)
         return
     end
 
-    coinFarm.coinLookup[coin] =
-        nil
+    coinFarm.coinLookup[coin] = nil
 
     for index = #coinFarm.coins, 1, -1 do
         if coinFarm.coins[index] == coin then
@@ -2065,19 +2550,14 @@ local function removeCoin(coin)
 end
 
 local function buildCoinCache()
-    table.clear(
-        coinFarm.coins
-    )
+    table.clear(coinFarm.coins)
+    table.clear(coinFarm.coinLookup)
 
-    table.clear(
-        coinFarm.coinLookup
-    )
-
-    for _, object in ipairs(workspace:GetDescendants()) do
+    for _, object in ipairs(
+        workspace:GetDescendants()
+    ) do
         if isMainCoin(object) then
-            addCoin(
-                object
-            )
+            addCoin(object)
         end
     end
 end
@@ -2086,17 +2566,13 @@ buildCoinCache()
 
 track(workspace.DescendantAdded:Connect(function(object)
     if isMainCoin(object) then
-        addCoin(
-            object
-        )
+        addCoin(object)
     end
 end))
 
 track(workspace.DescendantRemoving:Connect(function(object)
     if coinFarm.coinLookup[object] then
-        removeCoin(
-            object
-        )
+        removeCoin(object)
     end
 end))
 
@@ -2118,8 +2594,7 @@ local function cleanCoinCache()
             or not coin:IsDescendantOf(workspace) then
 
             if coin then
-                coinFarm.coinLookup[coin] =
-                    nil
+                coinFarm.coinLookup[coin] = nil
             end
 
             table.remove(
@@ -2136,8 +2611,7 @@ local function getNearestCoin()
     end
 
     local bestCoin
-    local bestDistance =
-        math.huge
+    local bestDistance = math.huge
 
     local currentPosition =
         rootPart.Position
@@ -2159,11 +2633,8 @@ local function getNearestCoin()
                 ).Magnitude
 
             if distance < bestDistance then
-                bestDistance =
-                    distance
-
-                bestCoin =
-                    coin
+                bestDistance = distance
+                bestCoin = coin
             end
         end
     end
@@ -2204,9 +2675,7 @@ local function setFarmPosition(position)
     rootPart.AssemblyLinearVelocity =
         Vector3.zero
 
-    moveCoinPlatform(
-        position
-    )
+    moveCoinPlatform(position)
 end
 
 local function smoothFarmMove(
@@ -2234,17 +2703,13 @@ local function smoothFarmMove(
             rootPart.Position
 
         local offset =
-            destination
-            - current
+            destination - current
 
         local distance =
             offset.Magnitude
 
         if distance <= stopDistance then
-            setFarmPosition(
-                destination
-            )
-
+            setFarmPosition(destination)
             return true
         end
 
@@ -2283,9 +2748,7 @@ local function waitForCoinPickup(coin)
         task.wait(0.015)
     end
 
-    return not coinExists(
-        coin
-    )
+    return not coinExists(coin)
 end
 
 local function farmCoin(coin)
@@ -2349,9 +2812,7 @@ local function farmCoin(coin)
     end
 
     local picked =
-        waitForCoinPickup(
-            coin
-        )
+        waitForCoinPickup(coin)
 
     smoothFarmMove(
         underPosition,
@@ -2396,8 +2857,7 @@ local function isGuiActuallyVisible(guiObject)
             return false
         end
 
-        current =
-            current.Parent
+        current = current.Parent
     end
 
     local camera =
@@ -2435,15 +2895,15 @@ local function findVisibleCoinBagFullText()
         return nil
     end
 
-    for _, object in ipairs(playerGui:GetDescendants()) do
+    for _, object in ipairs(
+        playerGui:GetDescendants()
+    ) do
         if object:IsA("TextLabel")
             or object:IsA("TextButton")
             or object:IsA("TextBox") then
 
             local text =
-                tostring(
-                    object.Text or ""
-                )
+                tostring(object.Text or "")
 
             local normalized =
                 string.lower(text)
@@ -2480,14 +2940,9 @@ local function handleCoinBagFull()
         return
     end
 
-    coinFarm.fullBagDebounce =
-        true
-
-    coinFarm.busy =
-        false
-
-    coinFarm.target =
-        nil
+    coinFarm.fullBagDebounce = true
+    coinFarm.busy = false
+    coinFarm.target = nil
 
     destroyCoinPlatform()
     restoreCoinCollision()
@@ -2499,8 +2954,7 @@ local function handleCoinBagFull()
     if humanoid
         and humanoid.Health > 0 then
 
-        humanoid.Health =
-            0
+        humanoid.Health = 0
     end
 
     task.spawn(function()
@@ -2522,8 +2976,7 @@ local function handleCoinBagFull()
             ensureCoinPlatform()
         end
 
-        coinFarm.fullBagDebounce =
-            false
+        coinFarm.fullBagDebounce = false
     end)
 end
 
@@ -2548,37 +3001,25 @@ task.spawn(function()
             or not rootPart then
 
             task.wait(0.025)
-
             continue
         end
 
         if os.clock() - lastCleanup > 5 then
-            lastCleanup =
-                os.clock()
-
+            lastCleanup = os.clock()
             cleanCoinCache()
         end
 
         local coin =
             getNearestCoin()
 
-        coinFarm.target =
-            coin
+        coinFarm.target = coin
 
         if coin then
-            coinFarm.busy =
-                true
-
-            farmCoin(
-                coin
-            )
-
-            coinFarm.busy =
-                false
+            coinFarm.busy = true
+            farmCoin(coin)
+            coinFarm.busy = false
         else
-            coinFarm.target =
-                nil
-
+            coinFarm.target = nil
             task.wait(0.06)
         end
 
@@ -2593,17 +3034,10 @@ track(player.CharacterAdded:Connect(function()
 
     refreshCharacter()
 
-    coinFarm.busy =
-        false
-
-    gunPickup.busy =
-        false
-
-    sheriff.shooting =
-        false
-
-    murderer.throwing =
-        false
+    coinFarm.busy = false
+    gunPickup.busy = false
+    sheriff.shooting = false
+    murderer.throwing = false
 
     table.clear(
         coinFarm.originalCollision
@@ -2615,6 +3049,14 @@ track(player.CharacterAdded:Connect(function()
 
     if movement.spin then
         updateSpinController()
+    end
+
+    if nvis.enabled then
+        applyNvisCharacter()
+    end
+
+    if grabNoFall.enabled then
+        enableGrabNoFall()
     end
 
     if coinFarm.enabled then
@@ -2659,15 +3101,16 @@ track(RunService.Stepped:Connect(function()
         and not safety.underground then
 
         if movement.noclip then
-            for _, object in ipairs(character:GetDescendants()) do
+            for _, object in ipairs(
+                character:GetDescendants()
+            ) do
                 if object:IsA("BasePart") then
                     if movement.noclipParts[object] == nil then
                         movement.noclipParts[object] =
                             object.CanCollide
                     end
 
-                    object.CanCollide =
-                        false
+                    object.CanCollide = false
                 end
             end
 
@@ -2678,9 +3121,7 @@ track(RunService.Stepped:Connect(function()
 end))
 
 track(RunService.Heartbeat:Connect(function()
-    if not humanoid
-        or not rootPart then
-
+    if not humanoid or not rootPart then
         return
     end
 
@@ -2758,9 +3199,7 @@ local function loadVampauth()
                 )
 
             local loader =
-                loadstring(
-                    source
-                )
+                loadstring(source)
 
             if not loader then
                 error("Vampauth failed")
@@ -2790,9 +3229,7 @@ local function getHWID()
         return result
     end
 
-    return tostring(
-        player.UserId
-    )
+    return tostring(player.UserId)
 end
 
 local function validateKey(key)
@@ -2825,22 +3262,17 @@ local function validateKey(key)
                 })
             end)
 
-        if not success
-            or not result then
-
+        if not success or not result then
             return false,
                 "authentication failed"
         end
 
-        vampauthClient =
-            result
+        vampauthClient = result
     end
 
     local success, valid, data =
         pcall(function()
-            return vampauthClient:Check(
-                key
-            )
+            return vampauthClient:Check(key)
         end)
 
     if not success then
@@ -2849,8 +3281,7 @@ local function validateKey(key)
     end
 
     if valid then
-        return true,
-            data
+        return true, data
     end
 
     local messages = {
@@ -2872,9 +3303,7 @@ local function validateKey(key)
     }
 
     local reason =
-        tostring(
-            data or "invalid key"
-        )
+        tostring(data or "invalid key")
 
     return false,
         messages[reason]
@@ -2885,24 +3314,13 @@ local buildChooser
 local buildMainMenu
 
 local keyOverlay = create("Frame", {
-    Size =
-        UDim2.fromScale(
-            1,
-            1
-        ),
+    Size = UDim2.fromScale(1, 1),
 
     BackgroundColor3 =
-        Color3.fromRGB(
-            6,
-            7,
-            9
-        ),
+        Color3.fromRGB(6, 7, 9),
 
-    BackgroundTransparency =
-        0.04,
-
-    BorderSizePixel =
-        0
+    BackgroundTransparency = 0.04,
+    BorderSizePixel = 0
 }, gui)
 
 local backgroundGradient = create("UIGradient", {
@@ -2910,34 +3328,21 @@ local backgroundGradient = create("UIGradient", {
         ColorSequence.new({
             ColorSequenceKeypoint.new(
                 0,
-                Color3.fromRGB(
-                    7,
-                    8,
-                    10
-                )
+                Color3.fromRGB(7, 8, 10)
             ),
 
             ColorSequenceKeypoint.new(
                 0.5,
-                Color3.fromRGB(
-                    31,
-                    33,
-                    38
-                )
+                Color3.fromRGB(31, 33, 38)
             ),
 
             ColorSequenceKeypoint.new(
                 1,
-                Color3.fromRGB(
-                    7,
-                    8,
-                    10
-                )
+                Color3.fromRGB(7, 8, 10)
             )
         }),
 
-    Rotation =
-        -20
+    Rotation = -20
 }, keyOverlay)
 
 task.spawn(function()
@@ -2948,8 +3353,7 @@ task.spawn(function()
             backgroundGradient,
             4,
             {
-                Rotation =
-                    20
+                Rotation = 20
             }
         )
 
@@ -2963,8 +3367,7 @@ task.spawn(function()
             backgroundGradient,
             4,
             {
-                Rotation =
-                    -20
+                Rotation = -20
             }
         )
 
@@ -2974,16 +3377,10 @@ end)
 
 local keyWindow = create("Frame", {
     AnchorPoint =
-        Vector2.new(
-            0.5,
-            0.5
-        ),
+        Vector2.new(0.5, 0.5),
 
     Position =
-        UDim2.fromScale(
-            0.5,
-            0.5
-        ),
+        UDim2.fromScale(0.5, 0.5),
 
     Size =
         UDim2.new(
@@ -2994,48 +3391,26 @@ local keyWindow = create("Frame", {
         ),
 
     BackgroundColor3 =
-        Color3.fromRGB(
-            66,
-            68,
-            74
-        ),
+        Color3.fromRGB(66, 68, 74),
 
-    BackgroundTransparency =
-        0.22,
-
-    BorderSizePixel =
-        0,
-
-    Active =
-        true
+    BackgroundTransparency = 0.22,
+    BorderSizePixel = 0,
+    Active = true
 }, keyOverlay)
 
 create("UISizeConstraint", {
     MinSize =
-        Vector2.new(
-            300,
-            338
-        ),
+        Vector2.new(300, 338),
 
     MaxSize =
-        Vector2.new(
-            440,
-            348
-        )
+        Vector2.new(440, 348)
 }, keyWindow)
 
-addCorner(
-    keyWindow,
-    17
-)
+addCorner(keyWindow, 17)
 
 addStroke(
     keyWindow,
-    Color3.fromRGB(
-        147,
-        150,
-        158
-    ),
+    Color3.fromRGB(147, 150, 158),
     1,
     0.52
 )
@@ -3049,11 +3424,8 @@ local keyHeader = create("Frame", {
             76
         ),
 
-    BackgroundTransparency =
-        1,
-
-    Active =
-        true
+    BackgroundTransparency = 1,
+    Active = true
 }, keyWindow)
 
 makeDraggable(
@@ -3089,10 +3461,7 @@ local keyIcon = create("ImageLabel", {
         MM2_ICON
 }, keyHeader)
 
-addCorner(
-    keyIcon,
-    12
-)
+addCorner(keyIcon, 12)
 
 create("TextLabel", {
     Position =
@@ -3217,27 +3586,15 @@ local keyBox = create("TextBox", {
         Enum.TextXAlignment.Left
 }, keyWindow)
 
-addCorner(
-    keyBox,
-    11
-)
-
-addStroke(
-    keyBox
-)
+addCorner(keyBox, 11)
+addStroke(keyBox)
 
 create("UIPadding", {
     PaddingLeft =
-        UDim.new(
-            0,
-            14
-        ),
+        UDim.new(0, 14),
 
     PaddingRight =
-        UDim.new(
-            0,
-            14
-        )
+        UDim.new(0, 14)
 }, keyBox)
 
 local continueButton = create("TextButton", {
@@ -3267,11 +3624,7 @@ local continueButton = create("TextButton", {
         "Continue",
 
     TextColor3 =
-        Color3.fromRGB(
-            14,
-            20,
-            16
-        ),
+        Color3.fromRGB(14, 20, 16),
 
     TextSize =
         14,
@@ -3283,14 +3636,8 @@ local continueButton = create("TextButton", {
         false
 }, keyWindow)
 
-addCorner(
-    continueButton,
-    11
-)
-
-animateButton(
-    continueButton
-)
+addCorner(continueButton, 11)
+animateButton(continueButton)
 
 local getKeyButton = create("TextButton", {
     Position =
@@ -3334,14 +3681,8 @@ local getKeyButton = create("TextButton", {
         false
 }, keyWindow)
 
-addCorner(
-    getKeyButton,
-    11
-)
-
-animateButton(
-    getKeyButton
-)
+addCorner(getKeyButton, 11)
+animateButton(getKeyButton)
 
 local keyStatus = create("TextLabel", {
     Position =
@@ -3376,27 +3717,21 @@ local keyStatus = create("TextLabel", {
         Enum.Font.Gotham
 }, keyWindow)
 
-local keyBusy =
-    false
+local keyBusy = false
 
 track(getKeyButton.MouseButton1Click:Connect(function()
-    local copied =
-        false
+    local copied = false
 
     if setclipboard then
         copied =
             pcall(function()
-                setclipboard(
-                    KEY_FLOW
-                )
+                setclipboard(KEY_FLOW)
             end)
 
     elseif toclipboard then
         copied =
             pcall(function()
-                toclipboard(
-                    KEY_FLOW
-                )
+                toclipboard(KEY_FLOW)
             end)
     end
 
@@ -3416,8 +3751,7 @@ track(continueButton.MouseButton1Click:Connect(function()
         return
     end
 
-    keyBusy =
-        true
+    keyBusy = true
 
     continueButton.Text =
         "Checking..."
@@ -3448,13 +3782,10 @@ track(continueButton.MouseButton1Click:Connect(function()
             task.wait(0.15)
 
             keyOverlay:Destroy()
-
             buildChooser()
         else
             keyStatus.Text =
-                tostring(
-                    result
-                )
+                tostring(result)
 
             keyStatus.TextColor3 =
                 Colors.Danger
@@ -3462,8 +3793,7 @@ track(continueButton.MouseButton1Click:Connect(function()
             continueButton.Text =
                 "Continue"
 
-            keyBusy =
-                false
+            keyBusy = false
         end
     end)
 end))
@@ -3471,17 +3801,10 @@ end))
 buildChooser = function()
     local overlay = create("Frame", {
         Size =
-            UDim2.fromScale(
-                1,
-                1
-            ),
+            UDim2.fromScale(1, 1),
 
         BackgroundColor3 =
-            Color3.fromRGB(
-                5,
-                6,
-                8
-            ),
+            Color3.fromRGB(5, 6, 8),
 
         BackgroundTransparency =
             0.22,
@@ -3492,16 +3815,10 @@ buildChooser = function()
 
     local panel = create("Frame", {
         AnchorPoint =
-            Vector2.new(
-                0.5,
-                0.5
-            ),
+            Vector2.new(0.5, 0.5),
 
         Position =
-            UDim2.fromScale(
-                0.5,
-                0.5
-            ),
+            UDim2.fromScale(0.5, 0.5),
 
         Size =
             UDim2.new(
@@ -3512,11 +3829,7 @@ buildChooser = function()
             ),
 
         BackgroundColor3 =
-            Color3.fromRGB(
-                77,
-                79,
-                84
-            ),
+            Color3.fromRGB(77, 79, 84),
 
         BackgroundTransparency =
             0.22,
@@ -3530,37 +3843,22 @@ buildChooser = function()
 
     create("UISizeConstraint", {
         MinSize =
-            Vector2.new(
-                300,
-                210
-            ),
+            Vector2.new(300, 210),
 
         MaxSize =
-            Vector2.new(
-                470,
-                230
-            )
+            Vector2.new(470, 230)
     }, panel)
 
-    addCorner(
-        panel,
-        14
-    )
+    addCorner(panel, 14)
 
     addStroke(
         panel,
-        Color3.fromRGB(
-            160,
-            163,
-            170
-        ),
+        Color3.fromRGB(160, 163, 170),
         1,
         0.45
     )
 
-    makeDraggable(
-        panel
-    )
+    makeDraggable(panel)
 
     create("TextLabel", {
         Position =
@@ -3646,11 +3944,7 @@ buildChooser = function()
             ),
 
         BackgroundColor3 =
-            Color3.fromRGB(
-                41,
-                43,
-                48
-            ),
+            Color3.fromRGB(41, 43, 48),
 
         BackgroundTransparency =
             0.16,
@@ -3665,21 +3959,12 @@ buildChooser = function()
             false
     }, panel)
 
-    addCorner(
-        pcButton,
-        12
-    )
-
-    addStroke(
-        pcButton
-    )
+    addCorner(pcButton, 12)
+    addStroke(pcButton)
 
     local monitor = create("Frame", {
         AnchorPoint =
-            Vector2.new(
-                0.5,
-                0
-            ),
+            Vector2.new(0.5, 0),
 
         Position =
             UDim2.new(
@@ -3690,19 +3975,13 @@ buildChooser = function()
             ),
 
         Size =
-            UDim2.fromOffset(
-                66,
-                43
-            ),
+            UDim2.fromOffset(66, 43),
 
         BackgroundTransparency =
             1
     }, pcButton)
 
-    addCorner(
-        monitor,
-        6
-    )
+    addCorner(monitor, 6)
 
     addStroke(
         monitor,
@@ -3713,10 +3992,7 @@ buildChooser = function()
 
     create("Frame", {
         AnchorPoint =
-            Vector2.new(
-                0.5,
-                0
-            ),
+            Vector2.new(0.5, 0),
 
         Position =
             UDim2.new(
@@ -3727,10 +4003,7 @@ buildChooser = function()
             ),
 
         Size =
-            UDim2.fromOffset(
-                5,
-                13
-            ),
+            UDim2.fromOffset(5, 13),
 
         BackgroundColor3 =
             Colors.Text,
@@ -3741,10 +4014,7 @@ buildChooser = function()
 
     local monitorBase = create("Frame", {
         AnchorPoint =
-            Vector2.new(
-                0.5,
-                0
-            ),
+            Vector2.new(0.5, 0),
 
         Position =
             UDim2.new(
@@ -3755,10 +4025,7 @@ buildChooser = function()
             ),
 
         Size =
-            UDim2.fromOffset(
-                31,
-                4
-            ),
+            UDim2.fromOffset(31, 4),
 
         BackgroundColor3 =
             Colors.Text,
@@ -3767,10 +4034,7 @@ buildChooser = function()
             0
     }, pcButton)
 
-    addCorner(
-        monitorBase,
-        2
-    )
+    addCorner(monitorBase, 2)
 
     create("TextLabel", {
         Position =
@@ -3823,11 +4087,7 @@ buildChooser = function()
             ),
 
         BackgroundColor3 =
-            Color3.fromRGB(
-                41,
-                43,
-                48
-            ),
+            Color3.fromRGB(41, 43, 48),
 
         BackgroundTransparency =
             0.16,
@@ -3842,21 +4102,12 @@ buildChooser = function()
             false
     }, panel)
 
-    addCorner(
-        phoneButton,
-        12
-    )
-
-    addStroke(
-        phoneButton
-    )
+    addCorner(phoneButton, 12)
+    addStroke(phoneButton)
 
     local phoneDrawing = create("Frame", {
         AnchorPoint =
-            Vector2.new(
-                0.5,
-                0
-            ),
+            Vector2.new(0.5, 0),
 
         Position =
             UDim2.new(
@@ -3867,19 +4118,13 @@ buildChooser = function()
             ),
 
         Size =
-            UDim2.fromOffset(
-                36,
-                60
-            ),
+            UDim2.fromOffset(36, 60),
 
         BackgroundTransparency =
             1
     }, phoneButton)
 
-    addCorner(
-        phoneDrawing,
-        7
-    )
+    addCorner(phoneDrawing, 7)
 
     addStroke(
         phoneDrawing,
@@ -3890,10 +4135,7 @@ buildChooser = function()
 
     create("Frame", {
         AnchorPoint =
-            Vector2.new(
-                0.5,
-                0
-            ),
+            Vector2.new(0.5, 0),
 
         Position =
             UDim2.new(
@@ -3904,10 +4146,7 @@ buildChooser = function()
             ),
 
         Size =
-            UDim2.fromOffset(
-                11,
-                2
-            ),
+            UDim2.fromOffset(11, 2),
 
         BackgroundColor3 =
             Colors.Text,
@@ -3949,26 +4188,18 @@ buildChooser = function()
             Enum.Font.GothamBold
     }, phoneButton)
 
-    animateButton(
-        pcButton
-    )
-
-    animateButton(
-        phoneButton
-    )
+    animateButton(pcButton)
+    animateButton(phoneButton)
 
     track(pcButton.MouseButton1Click:Connect(function()
         overlay:Destroy()
 
         if blur then
             blur:Destroy()
-            blur =
-                nil
+            blur = nil
         end
 
-        buildMainMenu(
-            "PC"
-        )
+        buildMainMenu("PC")
     end))
 
     track(phoneButton.MouseButton1Click:Connect(function()
@@ -3976,13 +4207,10 @@ buildChooser = function()
 
         if blur then
             blur:Destroy()
-            blur =
-                nil
+            blur = nil
         end
 
-        buildMainMenu(
-            "Phone"
-        )
+        buildMainMenu("Phone")
     end))
 end
 
@@ -3998,16 +4226,10 @@ buildMainMenu = function(deviceMode)
 
     local menu = create("Frame", {
         AnchorPoint =
-            Vector2.new(
-                0.5,
-                0.5
-            ),
+            Vector2.new(0.5, 0.5),
 
         Position =
-            UDim2.fromScale(
-                0.5,
-                0.5
-            ),
+            UDim2.fromScale(0.5, 0.5),
 
         BackgroundColor3 =
             Colors.Background,
@@ -4028,11 +4250,19 @@ buildMainMenu = function(deviceMode)
     if isPhone then
         menu.Size =
             UDim2.new(
-                1,
-                -10,
-                1,
-                -18
+                0.92,
+                0,
+                0.62,
+                0
             )
+
+        create("UISizeConstraint", {
+            MinSize =
+                Vector2.new(280, 300),
+
+            MaxSize =
+                Vector2.new(420, 380)
+        }, menu)
     else
         menu.Size =
             UDim2.fromOffset(
@@ -4041,14 +4271,8 @@ buildMainMenu = function(deviceMode)
             )
     end
 
-    addCorner(
-        menu,
-        14
-    )
-
-    addStroke(
-        menu
-    )
+    addCorner(menu, 14)
+    addStroke(menu)
 
     local headerHeight =
         isPhone and 50 or 58
@@ -4090,10 +4314,7 @@ buildMainMenu = function(deviceMode)
             ),
 
         Size =
-            UDim2.fromOffset(
-                36,
-                36
-            ),
+            UDim2.fromOffset(36, 36),
 
         BackgroundColor3 =
             Colors.Control,
@@ -4105,10 +4326,7 @@ buildMainMenu = function(deviceMode)
             MM2_ICON
     }, header)
 
-    addCorner(
-        headerIcon,
-        9
-    )
+    addCorner(headerIcon, 9)
 
     create("TextLabel", {
         Position =
@@ -4184,10 +4402,7 @@ buildMainMenu = function(deviceMode)
 
     local minimizeButton = create("TextButton", {
         AnchorPoint =
-            Vector2.new(
-                1,
-                0.5
-            ),
+            Vector2.new(1, 0.5),
 
         Position =
             UDim2.new(
@@ -4198,10 +4413,7 @@ buildMainMenu = function(deviceMode)
             ),
 
         Size =
-            UDim2.fromOffset(
-                28,
-                28
-            ),
+            UDim2.fromOffset(28, 28),
 
         BackgroundColor3 =
             Colors.Control,
@@ -4228,17 +4440,11 @@ buildMainMenu = function(deviceMode)
             false
     }, header)
 
-    addCorner(
-        minimizeButton,
-        8
-    )
+    addCorner(minimizeButton, 8)
 
     local closeButton = create("TextButton", {
         AnchorPoint =
-            Vector2.new(
-                1,
-                0.5
-            ),
+            Vector2.new(1, 0.5),
 
         Position =
             UDim2.new(
@@ -4249,10 +4455,7 @@ buildMainMenu = function(deviceMode)
             ),
 
         Size =
-            UDim2.fromOffset(
-                28,
-                28
-            ),
+            UDim2.fromOffset(28, 28),
 
         BackgroundColor3 =
             Colors.Control,
@@ -4279,219 +4482,120 @@ buildMainMenu = function(deviceMode)
             false
     }, header)
 
-    addCorner(
-        closeButton,
-        8
-    )
+    addCorner(closeButton, 8)
 
     local navHolder
     local pagesHolder
 
-    if isPhone then
-        navHolder = create("Frame", {
-            Position =
-                UDim2.new(
-                    0,
-                    7,
-                    0,
-                    headerHeight + 5
-                ),
+    local sidebarWidth =
+        isPhone and 92 or 155
 
-            Size =
-                UDim2.new(
-                    1,
-                    -14,
-                    0,
-                    67
-                ),
+    navHolder = create("Frame", {
+        Position =
+            UDim2.new(
+                0,
+                0,
+                0,
+                headerHeight
+            ),
 
-            BackgroundTransparency =
-                1
-        }, menu)
-
-        create("UIGridLayout", {
-            CellSize =
-                UDim2.new(
-                    0.24,
-                    -3,
-                    0,
-                    29
-                ),
-
-            CellPadding =
-                UDim2.fromOffset(
-                    5,
-                    5
-                ),
-
-            FillDirectionMaxCells =
-                4,
-
-            SortOrder =
-                Enum.SortOrder.LayoutOrder
-        }, navHolder)
-
-        pagesHolder = create("Frame", {
-            Position =
-                UDim2.new(
-                    0,
-                    7,
-                    0,
-                    headerHeight + 77
-                ),
-
-            Size =
-                UDim2.new(
-                    1,
-                    -14,
-                    1,
-                    -(headerHeight + 84)
-                ),
-
-            BackgroundTransparency =
+        Size =
+            UDim2.new(
+                0,
+                sidebarWidth,
                 1,
+                -headerHeight
+            ),
 
-            ClipsDescendants =
-                true
-        }, menu)
-    else
-        navHolder = create("Frame", {
-            Position =
-                UDim2.new(
-                    0,
-                    0,
-                    0,
-                    headerHeight
-                ),
+        BackgroundColor3 =
+            Colors.Sidebar,
 
-            Size =
-                UDim2.new(
-                    0,
-                    155,
-                    1,
-                    -headerHeight
-                ),
+        BackgroundTransparency =
+            0.12,
 
-            BackgroundColor3 =
-                Colors.Sidebar,
+        BorderSizePixel =
+            0
+    }, menu)
 
-            BackgroundTransparency =
-                0.12,
+    create("UIListLayout", {
+        Padding =
+            UDim.new(
+                0,
+                isPhone and 4 or 6
+            ),
 
-            BorderSizePixel =
-                0
-        }, menu)
+        HorizontalAlignment =
+            Enum.HorizontalAlignment.Center,
 
-        create("UIListLayout", {
-            Padding =
-                UDim.new(
-                    0,
-                    6
-                ),
+        SortOrder =
+            Enum.SortOrder.LayoutOrder
+    }, navHolder)
 
-            HorizontalAlignment =
-                Enum.HorizontalAlignment.Center,
+    create("UIPadding", {
+        PaddingTop =
+            UDim.new(
+                0,
+                isPhone and 7 or 10
+            )
+    }, navHolder)
 
-            SortOrder =
-                Enum.SortOrder.LayoutOrder
-        }, navHolder)
+    pagesHolder = create("Frame", {
+        Position =
+            UDim2.new(
+                0,
+                sidebarWidth,
+                0,
+                headerHeight
+            ),
 
-        create("UIPadding", {
-            PaddingTop =
-                UDim.new(
-                    0,
-                    10
-                )
-        }, navHolder)
-
-        pagesHolder = create("Frame", {
-            Position =
-                UDim2.new(
-                    0,
-                    155,
-                    0,
-                    headerHeight
-                ),
-
-            Size =
-                UDim2.new(
-                    1,
-                    -155,
-                    1,
-                    -headerHeight
-                ),
-
-            BackgroundTransparency =
+        Size =
+            UDim2.new(
                 1,
+                -sidebarWidth,
+                1,
+                -headerHeight
+            ),
 
-            ClipsDescendants =
-                true
-        }, menu)
-    end
+        BackgroundTransparency =
+            1,
+
+        ClipsDescendants =
+            true
+    }, menu)
 
     local pages = {}
     local navButtons = {}
     local navOrder = 0
 
     local function createPage(name)
-        local page
+        local page = create("ScrollingFrame", {
+            Name =
+                name .. "Page",
 
-        if isPhone then
-            page = create("Frame", {
-                Name =
-                    name .. "Page",
+            Size =
+                UDim2.fromScale(1, 1),
 
-                Size =
-                    UDim2.fromScale(
-                        1,
-                        1
-                    ),
+            BackgroundTransparency =
+                1,
 
-                BackgroundTransparency =
-                    1,
+            BorderSizePixel =
+                0,
 
-                Visible =
-                    false,
+            Visible =
+                false,
 
-                ClipsDescendants =
-                    true
-            }, pagesHolder)
-        else
-            page = create("ScrollingFrame", {
-                Name =
-                    name .. "Page",
+            CanvasSize =
+                UDim2.fromOffset(0, 0),
 
-                Size =
-                    UDim2.fromScale(
-                        1,
-                        1
-                    ),
+            AutomaticCanvasSize =
+                Enum.AutomaticSize.Y,
 
-                BackgroundTransparency =
-                    1,
+            ScrollBarThickness =
+                isPhone and 2 or 3,
 
-                BorderSizePixel =
-                    0,
-
-                Visible =
-                    false,
-
-                CanvasSize =
-                    UDim2.fromOffset(
-                        0,
-                        0
-                    ),
-
-                AutomaticCanvasSize =
-                    Enum.AutomaticSize.Y,
-
-                ScrollBarThickness =
-                    3,
-
-                ScrollBarImageColor3 =
-                    Colors.Accent
-            }, pagesHolder)
-        end
+            ScrollBarImageColor3 =
+                Colors.Accent
+        }, pagesHolder)
 
         create("UIListLayout", {
             Padding =
@@ -4508,30 +4612,26 @@ buildMainMenu = function(deviceMode)
             PaddingLeft =
                 UDim.new(
                     0,
-                    isPhone and 4 or 13
+                    isPhone and 5 or 13
                 ),
 
             PaddingRight =
                 UDim.new(
                     0,
-                    isPhone and 4 or 13
+                    isPhone and 5 or 13
                 ),
 
             PaddingTop =
                 UDim.new(
                     0,
-                    isPhone and 4 or 13
+                    isPhone and 5 or 13
                 ),
 
             PaddingBottom =
-                UDim.new(
-                    0,
-                    10
-                )
+                UDim.new(0, 10)
         }, page)
 
-        pages[name] =
-            page
+        pages[name] = page
 
         return page
     end
@@ -4567,14 +4667,9 @@ buildMainMenu = function(deviceMode)
                 navOrder,
 
             Size =
-                isPhone
-                and UDim2.fromScale(
-                    1,
-                    1
-                )
-                or UDim2.fromOffset(
-                    132,
-                    38
+                UDim2.fromOffset(
+                    isPhone and 80 or 132,
+                    isPhone and 28 or 38
                 ),
 
             BackgroundColor3 =
@@ -4602,18 +4697,12 @@ buildMainMenu = function(deviceMode)
                 false
         }, navHolder)
 
-        addCorner(
-            button,
-            8
-        )
+        addCorner(button, 8)
 
-        navButtons[name] =
-            button
+        navButtons[name] = button
 
         track(button.MouseButton1Click:Connect(function()
-            showPage(
-                name
-            )
+            showPage(name)
         end))
     end
 
@@ -4640,14 +4729,8 @@ buildMainMenu = function(deviceMode)
                 0
         }, page)
 
-        addCorner(
-            card,
-            10
-        )
-
-        addStroke(
-            card
-        )
+        addCorner(card, 10)
+        addStroke(card)
 
         local holder = create("Frame", {
             Size =
@@ -4764,10 +4847,7 @@ buildMainMenu = function(deviceMode)
                 false
         }, parent)
 
-        addCorner(
-            row,
-            8
-        )
+        addCorner(row, 8)
 
         create("TextLabel", {
             Position =
@@ -4807,10 +4887,7 @@ buildMainMenu = function(deviceMode)
 
         local switch = create("Frame", {
             AnchorPoint =
-                Vector2.new(
-                    1,
-                    0.5
-                ),
+                Vector2.new(1, 0.5),
 
             Position =
                 UDim2.new(
@@ -4830,20 +4907,14 @@ buildMainMenu = function(deviceMode)
                 0
         }, row)
 
-        addCorner(
-            switch,
-            100
-        )
+        addCorner(switch, 100)
 
         local dotSize =
             isPhone and 12 or 15
 
         local dot = create("Frame", {
             AnchorPoint =
-                Vector2.new(
-                    0.5,
-                    0.5
-                ),
+                Vector2.new(0.5, 0.5),
 
             Size =
                 UDim2.fromOffset(
@@ -4855,10 +4926,7 @@ buildMainMenu = function(deviceMode)
                 0
         }, switch)
 
-        addCorner(
-            dot,
-            100
-        )
+        addCorner(dot, 100)
 
         local function refresh()
             switch.BackgroundColor3 =
@@ -4888,22 +4956,16 @@ buildMainMenu = function(deviceMode)
         end
 
         local function setState(value)
-            state =
-                value
-
+            state = value
             refresh()
 
             if callback then
-                callback(
-                    state
-                )
+                callback(state)
             end
         end
 
         track(row.MouseButton1Click:Connect(function()
-            setState(
-                not state
-            )
+            setState(not state)
         end))
 
         refresh()
@@ -4914,9 +4976,7 @@ buildMainMenu = function(deviceMode)
             end,
 
             Set = function(_, value)
-                setState(
-                    value
-                )
+                setState(value)
             end
         }
     end
@@ -4938,11 +4998,7 @@ buildMainMenu = function(deviceMode)
 
             BackgroundColor3 =
                 danger
-                and Color3.fromRGB(
-                    77,
-                    37,
-                    40
-                )
+                and Color3.fromRGB(77, 37, 40)
                 or Colors.Control,
 
             BackgroundTransparency =
@@ -4969,14 +5025,8 @@ buildMainMenu = function(deviceMode)
                 false
         }, parent)
 
-        addCorner(
-            button,
-            8
-        )
-
-        animateButton(
-            button
-        )
+        addCorner(button, 8)
+        animateButton(button)
 
         track(button.MouseButton1Click:Connect(function()
             if callback then
@@ -5021,10 +5071,7 @@ buildMainMenu = function(deviceMode)
                 0
         }, parent)
 
-        addCorner(
-            holder,
-            8
-        )
+        addCorner(holder, 8)
 
         create("TextLabel", {
             Position =
@@ -5064,10 +5111,7 @@ buildMainMenu = function(deviceMode)
 
         local valueLabel = create("TextLabel", {
             AnchorPoint =
-                Vector2.new(
-                    1,
-                    0
-                ),
+                Vector2.new(1, 0),
 
             Position =
                 UDim2.new(
@@ -5078,18 +5122,13 @@ buildMainMenu = function(deviceMode)
                 ),
 
             Size =
-                UDim2.fromOffset(
-                    60,
-                    17
-                ),
+                UDim2.fromOffset(60, 17),
 
             BackgroundTransparency =
                 1,
 
             Text =
-                tostring(
-                    value
-                ),
+                tostring(value),
 
             TextColor3 =
                 Colors.Accent,
@@ -5128,10 +5167,7 @@ buildMainMenu = function(deviceMode)
                 0
         }, holder)
 
-        addCorner(
-            bar,
-            100
-        )
+        addCorner(bar, 100)
 
         local fill = create("Frame", {
             BackgroundColor3 =
@@ -5141,30 +5177,23 @@ buildMainMenu = function(deviceMode)
                 0
         }, bar)
 
-        addCorner(
-            fill,
-            100
-        )
+        addCorner(fill, 100)
 
         local function setVisual()
             fill.Size =
                 UDim2.fromScale(
                     (
-                        value
-                        - minimum
+                        value - minimum
                     )
                     /
                     (
-                        maximum
-                        - minimum
+                        maximum - minimum
                     ),
                     1
                 )
 
             valueLabel.Text =
-                tostring(
-                    value
-                )
+                tostring(value)
         end
 
         local function updateFromX(x)
@@ -5187,8 +5216,7 @@ buildMainMenu = function(deviceMode)
                 math.floor(
                     minimum
                     + (
-                        maximum
-                        - minimum
+                        maximum - minimum
                     )
                     * percent
                     + 0.5
@@ -5197,23 +5225,21 @@ buildMainMenu = function(deviceMode)
             setVisual()
 
             if callback then
-                callback(
-                    value
-                )
+                callback(value)
             end
         end
 
         setVisual()
 
-        local dragging =
-            false
+        local dragging = false
 
         track(bar.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-                or input.UserInputType == Enum.UserInputType.Touch then
+            if input.UserInputType ==
+                    Enum.UserInputType.MouseButton1
+                or input.UserInputType ==
+                    Enum.UserInputType.Touch then
 
-                dragging =
-                    true
+                dragging = true
 
                 updateFromX(
                     input.Position.X
@@ -5224,8 +5250,10 @@ buildMainMenu = function(deviceMode)
         track(UserInputService.InputChanged:Connect(function(input)
             if dragging
                 and (
-                    input.UserInputType == Enum.UserInputType.MouseMovement
-                    or input.UserInputType == Enum.UserInputType.Touch
+                    input.UserInputType ==
+                        Enum.UserInputType.MouseMovement
+                    or input.UserInputType ==
+                        Enum.UserInputType.Touch
                 ) then
 
                 updateFromX(
@@ -5235,54 +5263,39 @@ buildMainMenu = function(deviceMode)
         end))
 
         track(UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-                or input.UserInputType == Enum.UserInputType.Touch then
+            if input.UserInputType ==
+                    Enum.UserInputType.MouseButton1
+                or input.UserInputType ==
+                    Enum.UserInputType.Touch then
 
-                dragging =
-                    false
+                dragging = false
             end
         end))
     end
 
     local Home =
-        createPage(
-            "Home"
-        )
+        createPage("Home")
 
     local SheriffPage =
-        createPage(
-            "Sheriff"
-        )
+        createPage("Sheriff")
 
     local MurdererPage =
-        createPage(
-            "Murderer"
-        )
+        createPage("Murderer")
 
     local InnocentPage =
-        createPage(
-            "Innocent"
-        )
+        createPage("Innocent")
 
     local CoinPage =
-        createPage(
-            "Coin Grab"
-        )
+        createPage("Coin Grab")
 
     local SafetyPage =
-        createPage(
-            "Safety"
-        )
+        createPage("Safety")
 
     local UpdatesPage =
-        createPage(
-            "Updates"
-        )
+        createPage("Updates")
 
     local UtilityPage =
-        createPage(
-            "Utility"
-        )
+        createPage("Utility")
 
     createNav("Home")
     createNav("Sheriff")
@@ -5339,8 +5352,7 @@ buildMainMenu = function(deviceMode)
         "Aim Bot",
         sheriff.quickShot,
         function(value)
-            sheriff.quickShot =
-                value
+            sheriff.quickShot = value
         end
     )
 
@@ -5357,7 +5369,7 @@ buildMainMenu = function(deviceMode)
             1,
 
         Text =
-            "click where you want to shoot — gun equips and gets put away automatically",
+            "click/tap — finds the alive Knife player, equips Gun, aims, shoots, then unequips",
 
         TextColor3 =
             Colors.SubText,
@@ -5386,8 +5398,7 @@ buildMainMenu = function(deviceMode)
         "Auto Pick Up Gun",
         gunPickup.auto,
         function(value)
-            gunPickup.auto =
-                value
+            gunPickup.auto = value
         end
     )
 
@@ -5412,8 +5423,7 @@ buildMainMenu = function(deviceMode)
         "Auto Throw Knife",
         murderer.autoThrow,
         function(value)
-            murderer.autoThrow =
-                value
+            murderer.autoThrow = value
         end
     )
 
@@ -5423,8 +5433,7 @@ buildMainMenu = function(deviceMode)
         5,
         100,
         math.floor(
-            murderer.throwDelay
-            * 100
+            murderer.throwDelay * 100
         ),
         function(value)
             murderer.throwDelay =
@@ -5468,8 +5477,7 @@ buildMainMenu = function(deviceMode)
         "Auto Pick Up Gun",
         gunPickup.auto,
         function(value)
-            gunPickup.auto =
-                value
+            gunPickup.auto = value
         end
     )
 
@@ -5484,8 +5492,7 @@ buildMainMenu = function(deviceMode)
         "Speed",
         movement.speedEnabled,
         function(value)
-            movement.speedEnabled =
-                value
+            movement.speedEnabled = value
         end
     )
 
@@ -5496,8 +5503,7 @@ buildMainMenu = function(deviceMode)
         250,
         movement.speed,
         function(value)
-            movement.speed =
-                value
+            movement.speed = value
         end
     )
 
@@ -5506,8 +5512,7 @@ buildMainMenu = function(deviceMode)
         "Infinite Jump",
         movement.infiniteJump,
         function(value)
-            movement.infiniteJump =
-                value
+            movement.infiniteJump = value
         end
     )
 
@@ -5516,8 +5521,7 @@ buildMainMenu = function(deviceMode)
         "Noclip",
         movement.noclip,
         function(value)
-            movement.noclip =
-                value
+            movement.noclip = value
 
             if not value
                 and not coinFarm.enabled
@@ -5530,11 +5534,23 @@ buildMainMenu = function(deviceMode)
 
     createToggle(
         movementSection,
+        "Nvis",
+        nvis.enabled,
+        function(value)
+            if value then
+                enableNvis()
+            else
+                disableNvis()
+            end
+        end
+    )
+
+    createToggle(
+        movementSection,
         "Spin Bot",
         movement.spin,
         function(value)
-            movement.spin =
-                value
+            movement.spin = value
 
             if value then
                 updateSpinController()
@@ -5551,8 +5567,7 @@ buildMainMenu = function(deviceMode)
         1500,
         movement.spinSpeed,
         function(value)
-            movement.spinSpeed =
-                value
+            movement.spinSpeed = value
 
             if movement.spinVelocity then
                 movement.spinVelocity.AngularVelocity =
@@ -5576,18 +5591,14 @@ buildMainMenu = function(deviceMode)
         "Coin Farm",
         coinFarm.enabled,
         function(value)
-            coinFarm.enabled =
-                value
+            coinFarm.enabled = value
 
             if value then
                 disableCoinCharacterCollision()
                 ensureCoinPlatform()
             else
-                coinFarm.target =
-                    nil
-
-                coinFarm.busy =
-                    false
+                coinFarm.target = nil
+                coinFarm.busy = false
 
                 restoreCoinCollision()
                 destroyCoinPlatform()
@@ -5626,10 +5637,7 @@ buildMainMenu = function(deviceMode)
             Enum.Font.GothamBold
     }, coinSection)
 
-    addCorner(
-        coinCounter,
-        8
-    )
+    addCorner(coinCounter, 8)
 
     local coinStatus = create("TextLabel", {
         Size =
@@ -5662,10 +5670,7 @@ buildMainMenu = function(deviceMode)
             Enum.Font.GothamMedium
     }, coinSection)
 
-    addCorner(
-        coinStatus,
-        8
-    )
+    addCorner(coinStatus, 8)
 
     task.spawn(function()
         while alive
@@ -5740,9 +5745,33 @@ buildMainMenu = function(deviceMode)
             if value then
                 enableUnderground()
             else
-                disableUnderground(
-                    true
-                )
+                disableUnderground(true)
+            end
+        end
+    )
+
+    createToggle(
+        safetySection,
+        "0 Grab",
+        zeroGrab.enabled,
+        function(value)
+            if value then
+                enableZeroGrab()
+            else
+                disableZeroGrab()
+            end
+        end
+    )
+
+    createToggle(
+        safetySection,
+        "Grab No Fall",
+        grabNoFall.enabled,
+        function(value)
+            if value then
+                enableGrabNoFall()
+            else
+                disableGrabNoFall()
             end
         end
     )
@@ -5771,7 +5800,15 @@ buildMainMenu = function(deviceMode)
         "coin bag full only resets when the text is actually visible",
         "anti fling is in safety",
         "underground safe mode is in safety",
-        "pc and phone picker keeps the device drawings"
+        "pc and phone picker keeps the device drawings",
+        "phone menu is smaller and uses the same left-sidebar layout as pc",
+        "phone pages scroll so the full mod list still fits",
+        "pick up gun now returns after task.wait(0.001)",
+        "added Nvis",
+        "added 0 Grab using GrabParts / DragPart / DragAttach",
+        "added Grab No Fall with an invisible ground hitbox while walk and jump stay enabled",
+        "Aim Bot now targets the alive player with Knife",
+        "Aim Bot equips Gun, aims, shoots, then unequips it"
     }
 
     for _, text in ipairs(updatesList) do
@@ -5791,8 +5828,7 @@ buildMainMenu = function(deviceMode)
                 1,
 
             Text =
-                "• "
-                .. text,
+                "• " .. text,
 
             TextColor3 =
                 Colors.SubText,
@@ -5857,8 +5893,7 @@ buildMainMenu = function(deviceMode)
         "Reset Character",
         function()
             if humanoid then
-                humanoid.Health =
-                    0
+                humanoid.Health = 0
             end
         end
     )
@@ -5880,10 +5915,7 @@ buildMainMenu = function(deviceMode)
     if isPhone then
         floatingButton = create("ImageButton", {
             AnchorPoint =
-                Vector2.new(
-                    1,
-                    1
-                ),
+                Vector2.new(1, 1),
 
             Position =
                 UDim2.new(
@@ -5894,10 +5926,7 @@ buildMainMenu = function(deviceMode)
                 ),
 
             Size =
-                UDim2.fromOffset(
-                    48,
-                    48
-                ),
+                UDim2.fromOffset(48, 48),
 
             BackgroundColor3 =
                 Colors.Card,
@@ -5928,8 +5957,7 @@ buildMainMenu = function(deviceMode)
     end
 
     local function setMenuVisible(value)
-        menu.Visible =
-            value
+        menu.Visible = value
 
         if floatingButton then
             floatingButton.Visible =
@@ -5938,22 +5966,16 @@ buildMainMenu = function(deviceMode)
     end
 
     track(minimizeButton.MouseButton1Click:Connect(function()
-        setMenuVisible(
-            false
-        )
+        setMenuVisible(false)
     end))
 
     track(closeButton.MouseButton1Click:Connect(function()
-        setMenuVisible(
-            false
-        )
+        setMenuVisible(false)
     end))
 
     if floatingButton then
         track(floatingButton.MouseButton1Click:Connect(function()
-            setMenuVisible(
-                true
-            )
+            setMenuVisible(true)
         end))
     end
 
@@ -5967,14 +5989,14 @@ buildMainMenu = function(deviceMode)
             return
         end
 
-        if input.KeyCode == Enum.KeyCode.RightShift then
+        if input.KeyCode ==
+            Enum.KeyCode.RightShift then
+
             setMenuVisible(
                 not menu.Visible
             )
         end
     end))
 
-    showPage(
-        "Home"
-    )
+    showPage("Home")
 end
