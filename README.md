@@ -17,27 +17,17 @@ local Lighting = game:GetService("Lighting")
 local VirtualInputManager
 
 pcall(function()
-    VirtualInputManager =
-        game:GetService("VirtualInputManager")
+    VirtualInputManager = game:GetService("VirtualInputManager")
 end)
 
-local player =
-    Players.LocalPlayer
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
-local camera =
-    workspace.CurrentCamera
+local PROJECT_ID = "PD6XH2EGXZXUHGED"
+local AUTH_SECRET = "04cce9295d9d2476cb2516b3363693a3c401767b4e75bd01"
+local KEY_FLOW = "https://vampauth.com/PD6XH2EGXZXUHGED/flow"
 
-local PROJECT_ID =
-    "PD6XH2EGXZXUHGED"
-
-local AUTH_SECRET =
-    "04cce9295d9d2476cb2516b3363693a3c401767b4e75bd01"
-
-local KEY_FLOW =
-    "https://vampauth.com/PD6XH2EGXZXUHGED/flow"
-
-local MM2_GAME_ID =
-    66654135
+local MM2_GAME_ID = 66654135
 
 local MM2_ICON =
     "rbxthumb://type=GameIcon&id="
@@ -65,7 +55,6 @@ local Colors = {
 }
 
 local alive = true
-
 local gui
 local blur
 
@@ -109,7 +98,6 @@ local sheriff = {
 local murderer = {
     autoThrow = false,
     throwing = false,
-
     throwDelay = 0.25,
     lastThrow = 0
 }
@@ -122,44 +110,34 @@ local gunPickup = {
 local coinFarm = {
     enabled = false,
 
-    target = nil,
+    underDistance = 9,
+    travelSpeed = 95,
+    verticalSpeed = 420,
 
     coins = {},
     coinLookup = {},
 
+    target = nil,
     pickedUp = 0,
 
     busy = false,
     fullBagDebounce = false,
 
-    underDistance = 60,
-
-    travelSpeed = 85,
-    verticalSpeed = 320,
-
-    touchDistance = 2.4,
-
     platform = nil,
 
-    originalCollision = {}
+    originalCollision = {},
+    characterConnection = nil
 }
 
-local function track(connection)
-    table.insert(
-        connections,
-        connection
-    )
+local throwKnifeOnce
 
+local function track(connection)
+    table.insert(connections, connection)
     return connection
 end
 
-local function create(
-    className,
-    properties,
-    parent
-)
-    local object =
-        Instance.new(className)
+local function create(className, properties, parent)
+    local object = Instance.new(className)
 
     for property, value in pairs(properties or {}) do
         object[property] = value
@@ -172,53 +150,21 @@ local function create(
     return object
 end
 
-local function addCorner(
-    object,
-    radius
-)
-    return create(
-        "UICorner",
-        {
-            CornerRadius =
-                UDim.new(
-                    0,
-                    radius or 9
-                )
-        },
-        object
-    )
+local function addCorner(object, radius)
+    return create("UICorner", {
+        CornerRadius = UDim.new(0, radius or 9)
+    }, object)
 end
 
-local function addStroke(
-    object,
-    color,
-    thickness,
-    transparency
-)
-    return create(
-        "UIStroke",
-        {
-            Color =
-                color
-                or Colors.Stroke,
-
-            Thickness =
-                thickness
-                or 1,
-
-            Transparency =
-                transparency
-                or 0.45
-        },
-        object
-    )
+local function addStroke(object, color, thickness, transparency)
+    return create("UIStroke", {
+        Color = color or Colors.Stroke,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0.45
+    }, object)
 end
 
-local function tween(
-    object,
-    duration,
-    properties
-)
+local function tween(object, duration, properties)
     TweenService:Create(
         object,
         TweenInfo.new(
@@ -232,16 +178,14 @@ end
 
 local function getUIParent()
     if gethui then
-        local success, result =
-            pcall(gethui)
+        local success, result = pcall(gethui)
 
         if success and result then
             return result
         end
     end
 
-    return player:
-        WaitForChild("PlayerGui")
+    return player:WaitForChild("PlayerGui")
 end
 
 local function refreshCharacter()
@@ -250,71 +194,40 @@ local function refreshCharacter()
         or player.CharacterAdded:Wait()
 
     humanoid =
-        character:
-            FindFirstChildOfClass(
-                "Humanoid"
-            )
-        or character:
-            WaitForChild(
-                "Humanoid"
-            )
+        character:FindFirstChildOfClass("Humanoid")
+        or character:WaitForChild("Humanoid")
 
     rootPart =
-        character:
-            FindFirstChild(
-                "HumanoidRootPart"
-            )
-        or character:
-            WaitForChild(
-                "HumanoidRootPart"
-            )
+        character:FindFirstChild("HumanoidRootPart")
+        or character:WaitForChild("HumanoidRootPart")
 
-    originalWalkSpeed =
-        humanoid.WalkSpeed
+    originalWalkSpeed = humanoid.WalkSpeed
 end
 
 refreshCharacter()
 
 local function restoreNoclip()
-    for part, oldValue
-        in pairs(
-            movement.noclipParts
-        ) do
-
-        if part
-            and part.Parent then
-
+    for part, oldValue in pairs(movement.noclipParts) do
+        if part and part.Parent then
             pcall(function()
-                part.CanCollide =
-                    oldValue
+                part.CanCollide = oldValue
             end)
         end
     end
 
-    table.clear(
-        movement.noclipParts
-    )
+    table.clear(movement.noclipParts)
 end
 
 local function restoreOtherPlayerCollision()
-    for part, oldValue
-        in pairs(
-            antiFling.originalCollision
-        ) do
-
-        if part
-            and part.Parent then
-
+    for part, oldValue in pairs(antiFling.originalCollision) do
+        if part and part.Parent then
             pcall(function()
-                part.CanCollide =
-                    oldValue
+                part.CanCollide = oldValue
             end)
         end
     end
 
-    table.clear(
-        antiFling.originalCollision
-    )
+    table.clear(antiFling.originalCollision)
 end
 
 local function disableOtherPlayerCollision()
@@ -322,96 +235,94 @@ local function disableOtherPlayerCollision()
         return
     end
 
-    for _, targetPlayer
-        in ipairs(
-            Players:GetPlayers()
-        ) do
-
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
         if targetPlayer ~= player
             and targetPlayer.Character then
 
-            for _, object
-                in ipairs(
-                    targetPlayer.Character:
-                        GetDescendants()
-                ) do
-
-                if object:IsA(
-                    "BasePart"
-                ) then
-
-                    if antiFling.originalCollision[object]
-                        == nil then
-
+            for _, object in ipairs(targetPlayer.Character:GetDescendants()) do
+                if object:IsA("BasePart") then
+                    if antiFling.originalCollision[object] == nil then
                         antiFling.originalCollision[object] =
                             object.CanCollide
                     end
 
-                    object.CanCollide =
-                        false
+                    object.CanCollide = false
                 end
             end
         end
     end
 end
 
-local function disableCoinFarmCollision()
+local function stopCoinCharacterWatcher()
+    if coinFarm.characterConnection then
+        pcall(function()
+            coinFarm.characterConnection:Disconnect()
+        end)
+
+        coinFarm.characterConnection = nil
+    end
+end
+
+local function restoreCoinCollision()
+    stopCoinCharacterWatcher()
+
+    for part, oldValue in pairs(coinFarm.originalCollision) do
+        if part and part.Parent then
+            pcall(function()
+                if movement.noclip then
+                    part.CanCollide = false
+                else
+                    part.CanCollide = oldValue
+                end
+            end)
+        end
+    end
+
+    table.clear(coinFarm.originalCollision)
+end
+
+local function disableCoinCharacterCollision()
+    stopCoinCharacterWatcher()
+
     if not character then
         return
     end
 
-    for _, object
-        in ipairs(
-            character:GetDescendants()
-        ) do
-
+    for _, object in ipairs(character:GetDescendants()) do
         if object:IsA("BasePart") then
-            if coinFarm.originalCollision[object]
-                == nil then
-
+            if coinFarm.originalCollision[object] == nil then
                 coinFarm.originalCollision[object] =
                     object.CanCollide
             end
 
-            object.CanCollide =
-                false
+            object.CanCollide = false
         end
     end
-end
 
-local function restoreCoinFarmCollision()
-    for part, oldValue
-        in pairs(
-            coinFarm.originalCollision
-        ) do
-
-        if part
-            and part.Parent then
-
-            if movement.noclip then
-                part.CanCollide =
-                    false
-            else
-                part.CanCollide =
-                    oldValue
+    coinFarm.characterConnection =
+        character.DescendantAdded:Connect(function(object)
+            if not coinFarm.enabled then
+                return
             end
-        end
-    end
 
-    table.clear(
-        coinFarm.originalCollision
-    )
+            if object:IsA("BasePart") then
+                if coinFarm.originalCollision[object] == nil then
+                    coinFarm.originalCollision[object] =
+                        object.CanCollide
+                end
+
+                object.CanCollide = false
+            end
+        end)
 end
 
 local function destroyCoinPlatform()
     if coinFarm.platform then
         pcall(function()
-            coinFarm.platform:
-                Destroy()
+            coinFarm.platform:Destroy()
         end)
 
-        coinFarm.platform =
-            nil
+        coinFarm.platform = nil
     end
 end
 
@@ -422,92 +333,60 @@ local function ensureCoinPlatform()
         return coinFarm.platform
     end
 
-    local platform =
-        Instance.new("Part")
+    local platform = Instance.new("Part")
 
-    platform.Name =
-        "THH_CoinPlatform"
+    platform.Name = "THH_CoinPlatform"
 
     platform.Size =
-        Vector3.new(
-            5,
-            0.35,
-            5
-        )
+        Vector3.new(5, 0.45, 5)
 
-    platform.Anchored =
-        true
+    platform.Anchored = true
 
-    platform.CanCollide =
-        false
+    -- platform itself stays collidable
+    platform.CanCollide = true
+    platform.CanTouch = false
+    platform.CanQuery = false
 
-    platform.CanTouch =
-        false
+    platform.Transparency = 1
 
-    platform.CanQuery =
-        false
+    platform.Parent = workspace
 
-    platform.Transparency =
-        1
-
-    platform.Parent =
-        workspace
-
-    coinFarm.platform =
-        platform
+    coinFarm.platform = platform
 
     return platform
 end
 
-local function removePlayerESP(
-    targetPlayer
-)
+local function removePlayerESP(targetPlayer)
     local highlight =
         esp.highlights[targetPlayer]
 
     if highlight then
         pcall(function()
-            highlight:
-                Destroy()
+            highlight:Destroy()
         end)
 
-        esp.highlights[targetPlayer] =
-            nil
+        esp.highlights[targetPlayer] = nil
     end
 end
 
 local function clearESP()
-    for _, highlight
-        in pairs(
-            esp.highlights
-        ) do
-
+    for _, highlight in pairs(esp.highlights) do
         if highlight then
             pcall(function()
-                highlight:
-                    Destroy()
+                highlight:Destroy()
             end)
         end
     end
 
-    table.clear(
-        esp.highlights
-    )
+    table.clear(esp.highlights)
 
-    for _, connection
-        in pairs(
-            esp.characterConnections
-        ) do
-
+    for _, connection in pairs(esp.characterConnections) do
         pcall(function()
-            connection:
-                Disconnect()
+            connection:Disconnect()
         end)
     end
 
-    table.clear(
-        esp.characterConnections
-    )
+    table.clear(esp.characterConnections)
 end
 
 local function cleanup()
@@ -515,54 +394,32 @@ local function cleanup()
         return
     end
 
-    alive =
-        false
+    alive = false
 
-    movement.speedEnabled =
-        false
+    movement.speedEnabled = false
+    movement.infiniteJump = false
+    movement.noclip = false
+    movement.spin = false
 
-    movement.infiniteJump =
-        false
+    antiFling.enabled = false
 
-    movement.noclip =
-        false
+    esp.enabled = false
 
-    movement.spin =
-        false
+    sheriff.quickShot = false
+    sheriff.shooting = false
 
-    antiFling.enabled =
-        false
+    murderer.autoThrow = false
+    murderer.throwing = false
 
-    esp.enabled =
-        false
+    gunPickup.auto = false
+    gunPickup.busy = false
 
-    sheriff.quickShot =
-        false
-
-    sheriff.shooting =
-        false
-
-    murderer.autoThrow =
-        false
-
-    murderer.throwing =
-        false
-
-    gunPickup.auto =
-        false
-
-    gunPickup.busy =
-        false
-
-    coinFarm.enabled =
-        false
-
-    coinFarm.busy =
-        false
+    coinFarm.enabled = false
+    coinFarm.busy = false
 
     restoreNoclip()
     restoreOtherPlayerCollision()
-    restoreCoinFarmCollision()
+    restoreCoinCollision()
 
     destroyCoinPlatform()
     clearESP()
@@ -574,20 +431,13 @@ local function cleanup()
         end)
     end
 
-    for _, connection
-        in ipairs(
-            connections
-        ) do
-
+    for _, connection in ipairs(connections) do
         pcall(function()
-            connection:
-                Disconnect()
+            connection:Disconnect()
         end)
     end
 
-    table.clear(
-        connections
-    )
+    table.clear(connections)
 
     if blur then
         pcall(function()
@@ -601,250 +451,145 @@ local function cleanup()
         end)
     end
 
-    if _G.THHGrowersCleanup
-        == cleanup then
-
-        _G.THHGrowersCleanup =
-            nil
+    if _G.THHGrowersCleanup == cleanup then
+        _G.THHGrowersCleanup = nil
     end
 end
 
-_G.THHGrowersCleanup =
-    cleanup
+_G.THHGrowersCleanup = cleanup
 
-track(
-    player.CharacterAdded:
-        Connect(function()
+local function makeDraggable(frame, handle)
+    handle = handle or frame
 
-            task.wait(0.2)
-
-            refreshCharacter()
-
-            coinFarm.busy =
-                false
-
-            gunPickup.busy =
-                false
-
-            sheriff.shooting =
-                false
-
-            murderer.throwing =
-                false
-
-            table.clear(
-                coinFarm.originalCollision
-            )
-        end)
-)
-
-local function makeDraggable(
-    frame,
-    handle
-)
-    handle =
-        handle or frame
-
-    local dragging =
-        false
-
+    local dragging = false
     local dragInput
     local dragStart
     local frameStart
 
-    track(
-        handle.InputBegan:
-            Connect(function(input)
+    track(handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
 
-                if input.UserInputType
-                        == Enum.UserInputType.MouseButton1
-                    or input.UserInputType
-                        == Enum.UserInputType.Touch then
+            dragging = true
 
-                    dragging =
-                        true
+            dragStart =
+                input.Position
 
-                    dragStart =
-                        input.Position
+            frameStart =
+                frame.Position
+        end
+    end))
 
-                    frameStart =
-                        frame.Position
-                end
-            end)
-    )
+    track(handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
 
-    track(
-        handle.InputChanged:
-            Connect(function(input)
+            dragInput = input
+        end
+    end))
 
-                if input.UserInputType
-                        == Enum.UserInputType.MouseMovement
-                    or input.UserInputType
-                        == Enum.UserInputType.Touch then
+    track(UserInputService.InputChanged:Connect(function(input)
+        if not dragging
+            or input ~= dragInput then
 
-                    dragInput =
-                        input
-                end
-            end)
-    )
+            return
+        end
 
-    track(
-        UserInputService.InputChanged:
-            Connect(function(input)
+        local delta =
+            input.Position
+            - dragStart
 
-                if not dragging
-                    or input ~= dragInput then
+        frame.Position =
+            UDim2.new(
+                frameStart.X.Scale,
+                frameStart.X.Offset + delta.X,
+                frameStart.Y.Scale,
+                frameStart.Y.Offset + delta.Y
+            )
+    end))
 
-                    return
-                end
+    track(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
 
-                local delta =
-                    input.Position
-                    - dragStart
-
-                frame.Position =
-                    UDim2.new(
-                        frameStart.X.Scale,
-                        frameStart.X.Offset
-                            + delta.X,
-
-                        frameStart.Y.Scale,
-                        frameStart.Y.Offset
-                            + delta.Y
-                    )
-            end)
-    )
-
-    track(
-        UserInputService.InputEnded:
-            Connect(function(input)
-
-                if input.UserInputType
-                        == Enum.UserInputType.MouseButton1
-                    or input.UserInputType
-                        == Enum.UserInputType.Touch then
-
-                    dragging =
-                        false
-                end
-            end)
-    )
+            dragging = false
+        end
+    end))
 end
 
-local function animateButton(
-    button
-)
+local function animateButton(button)
     local normal =
         button.BackgroundColor3
 
     local hover =
         Color3.new(
-            math.min(
-                normal.R + 0.06,
-                1
-            ),
-
-            math.min(
-                normal.G + 0.06,
-                1
-            ),
-
-            math.min(
-                normal.B + 0.06,
-                1
-            )
+            math.min(normal.R + 0.06, 1),
+            math.min(normal.G + 0.06, 1),
+            math.min(normal.B + 0.06, 1)
         )
 
     if UserInputService.MouseEnabled then
-        track(
-            button.MouseEnter:
-                Connect(function()
+        track(button.MouseEnter:Connect(function()
+            tween(
+                button,
+                0.14,
+                {
+                    BackgroundColor3 =
+                        hover
+                }
+            )
+        end))
 
-                    tween(
-                        button,
-                        0.14,
-                        {
-                            BackgroundColor3 =
-                                hover
-                        }
-                    )
-                end)
-        )
-
-        track(
-            button.MouseLeave:
-                Connect(function()
-
-                    tween(
-                        button,
-                        0.14,
-                        {
-                            BackgroundColor3 =
-                                normal
-                        }
-                    )
-                end)
-        )
+        track(button.MouseLeave:Connect(function()
+            tween(
+                button,
+                0.14,
+                {
+                    BackgroundColor3 =
+                        normal
+                }
+            )
+        end))
     end
 
-    track(
-        button.MouseButton1Down:
-            Connect(function()
+    track(button.MouseButton1Down:Connect(function()
+        tween(
+            button,
+            0.07,
+            {
+                BackgroundTransparency =
+                    0.2
+            }
+        )
+    end))
 
-                tween(
-                    button,
-                    0.07,
-                    {
-                        BackgroundTransparency =
-                            0.2
-                    }
-                )
-            end)
-    )
-
-    track(
-        button.MouseButton1Up:
-            Connect(function()
-
-                tween(
-                    button,
-                    0.1,
-                    {
-                        BackgroundTransparency =
-                            0.08
-                    }
-                )
-            end)
-    )
+    track(button.MouseButton1Up:Connect(function()
+        tween(
+            button,
+            0.1,
+            {
+                BackgroundTransparency =
+                    0.08
+            }
+        )
+    end))
 end
 
-local function findTool(
-    targetPlayer,
-    wantedName
-)
+local function findTool(targetPlayer, wantedName)
     if not targetPlayer then
         return nil
     end
 
     wantedName =
-        string.lower(
-            wantedName
-        )
+        string.lower(wantedName)
 
     local targetCharacter =
         targetPlayer.Character
 
     if targetCharacter then
-        for _, object
-            in ipairs(
-                targetCharacter:
-                    GetChildren()
-            ) do
-
+        for _, object in ipairs(targetCharacter:GetChildren()) do
             if object:IsA("Tool")
-                and string.lower(
-                    object.Name
-                ) == wantedName then
+                and string.lower(object.Name) == wantedName then
 
                 return object
             end
@@ -852,22 +597,12 @@ local function findTool(
     end
 
     local backpack =
-        targetPlayer:
-            FindFirstChildOfClass(
-                "Backpack"
-            )
+        targetPlayer:FindFirstChildOfClass("Backpack")
 
     if backpack then
-        for _, object
-            in ipairs(
-                backpack:
-                    GetChildren()
-            ) do
-
+        for _, object in ipairs(backpack:GetChildren()) do
             if object:IsA("Tool")
-                and string.lower(
-                    object.Name
-                ) == wantedName then
+                and string.lower(object.Name) == wantedName then
 
                 return object
             end
@@ -877,22 +612,15 @@ local function findTool(
     return nil
 end
 
-local function hasKnife(
-    targetPlayer
-)
+local function hasKnife(targetPlayer)
     return findTool(
         targetPlayer,
         "Knife"
     ) ~= nil
 end
 
-local function hasGun(
-    targetPlayer
-)
-    if findTool(
-        targetPlayer,
-        "Gun"
-    ) then
+local function hasGun(targetPlayer)
+    if findTool(targetPlayer, "Gun") then
         return true
     end
 
@@ -906,10 +634,7 @@ local function hasGun(
     end
 
     local backpack =
-        targetPlayer:
-            FindFirstChildOfClass(
-                "Backpack"
-            )
+        targetPlayer:FindFirstChildOfClass("Backpack")
 
     if backpack then
         table.insert(
@@ -918,33 +643,14 @@ local function hasGun(
         )
     end
 
-    for _, container
-        in ipairs(
-            containers
-        ) do
-
-        for _, object
-            in ipairs(
-                container:
-                    GetChildren()
-            ) do
-
+    for _, container in ipairs(containers) do
+        for _, object in ipairs(container:GetChildren()) do
             if object:IsA("Tool") then
                 local name =
-                    string.lower(
-                        object.Name
-                    )
+                    string.lower(object.Name)
 
-                if name:find(
-                        "gun",
-                        1,
-                        true
-                    )
-                    or name:find(
-                        "revolver",
-                        1,
-                        true
-                    ) then
+                if name:find("gun", 1, true)
+                    or name:find("revolver", 1, true) then
 
                     return true
                 end
@@ -955,29 +661,19 @@ local function hasGun(
     return false
 end
 
-local function getRoleColor(
-    targetPlayer
-)
-    if hasKnife(
-        targetPlayer
-    ) then
-
+local function getRoleColor(targetPlayer)
+    if hasKnife(targetPlayer) then
         return Colors.Murderer
     end
 
-    if hasGun(
-        targetPlayer
-    ) then
-
+    if hasGun(targetPlayer) then
         return Colors.Sheriff
     end
 
     return Colors.Innocent
 end
 
-local function addPlayerESP(
-    targetPlayer
-)
+local function addPlayerESP(targetPlayer)
     if not esp.enabled
         or targetPlayer == player
         or not targetPlayer.Character then
@@ -985,14 +681,10 @@ local function addPlayerESP(
         return
     end
 
-    removePlayerESP(
-        targetPlayer
-    )
+    removePlayerESP(targetPlayer)
 
     local highlight =
-        Instance.new(
-            "Highlight"
-        )
+        Instance.new("Highlight")
 
     highlight.Name =
         "THH_ESP_"
@@ -1008,9 +700,7 @@ local function addPlayerESP(
         0
 
     local color =
-        getRoleColor(
-            targetPlayer
-        )
+        getRoleColor(targetPlayer)
 
     highlight.FillColor =
         color
@@ -1028,151 +718,97 @@ local function addPlayerESP(
         highlight
 end
 
-local function setupESPPlayer(
-    targetPlayer
-)
+local function setupESPPlayer(targetPlayer)
     if not esp.enabled
         or targetPlayer == player then
 
         return
     end
 
-    addPlayerESP(
-        targetPlayer
-    )
+    addPlayerESP(targetPlayer)
 
     if esp.characterConnections[targetPlayer] then
         pcall(function()
-            esp.characterConnections[targetPlayer]:
-                Disconnect()
+            esp.characterConnections[targetPlayer]:Disconnect()
         end)
     end
 
     esp.characterConnections[targetPlayer] =
-        targetPlayer.CharacterAdded:
-            Connect(function()
+        targetPlayer.CharacterAdded:Connect(function()
+            removePlayerESP(targetPlayer)
 
-                removePlayerESP(
+            task.wait(0.1)
+
+            if alive
+                and esp.enabled then
+
+                addPlayerESP(
                     targetPlayer
                 )
-
-                task.wait(0.1)
-
-                if alive
-                    and esp.enabled then
-
-                    addPlayerESP(
-                        targetPlayer
-                    )
-                end
-            end)
+            end
+        end)
 end
 
 local function enableESP()
-    esp.enabled =
-        true
+    esp.enabled = true
 
-    for _, targetPlayer
-        in ipairs(
-            Players:GetPlayers()
-        ) do
-
-        setupESPPlayer(
-            targetPlayer
-        )
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
+        setupESPPlayer(targetPlayer)
     end
 end
 
 local function disableESP()
-    esp.enabled =
-        false
-
+    esp.enabled = false
     clearESP()
 end
 
-for _, targetPlayer
-    in ipairs(
-        Players:GetPlayers()
-    ) do
-
-    setupESPPlayer(
-        targetPlayer
-    )
+for _, targetPlayer in ipairs(Players:GetPlayers()) do
+    setupESPPlayer(targetPlayer)
 end
 
-track(
-    Players.PlayerAdded:
-        Connect(function(targetPlayer)
+track(Players.PlayerAdded:Connect(function(targetPlayer)
+    if esp.enabled then
+        setupESPPlayer(targetPlayer)
+    end
+end))
 
-            if esp.enabled then
-                setupESPPlayer(
-                    targetPlayer
-                )
-            end
-        end)
-)
+track(Players.PlayerRemoving:Connect(function(targetPlayer)
+    removePlayerESP(targetPlayer)
 
-track(
-    Players.PlayerRemoving:
-        Connect(function(targetPlayer)
+    local connection =
+        esp.characterConnections[targetPlayer]
 
-            removePlayerESP(
-                targetPlayer
-            )
+    if connection then
+        connection:Disconnect()
 
-            local connection =
-                esp.characterConnections[
-                    targetPlayer
-                ]
-
-            if connection then
-                connection:
-                    Disconnect()
-
-                esp.characterConnections[
-                    targetPlayer
-                ] = nil
-            end
-        end)
-)
+        esp.characterConnections[targetPlayer] =
+            nil
+    end
+end))
 
 task.spawn(function()
     while alive do
         if esp.enabled then
-            for _, targetPlayer
-                in ipairs(
-                    Players:
-                        GetPlayers()
-                ) do
-
+            for _, targetPlayer in ipairs(Players:GetPlayers()) do
                 if targetPlayer ~= player
                     and targetPlayer.Character then
 
                     local highlight =
-                        esp.highlights[
-                            targetPlayer
-                        ]
+                        esp.highlights[targetPlayer]
 
                     if not highlight
                         or not highlight.Parent
-                        or highlight.Adornee
-                            ~= targetPlayer.Character then
+                        or highlight.Adornee ~= targetPlayer.Character then
 
-                        addPlayerESP(
-                            targetPlayer
-                        )
+                        addPlayerESP(targetPlayer)
 
                         highlight =
-                            esp.highlights[
-                                targetPlayer
-                            ]
+                            esp.highlights[targetPlayer]
                     end
 
                     if highlight then
                         local color =
-                            getRoleColor(
-                                targetPlayer
-                            )
+                            getRoleColor(targetPlayer)
 
                         highlight.FillColor =
                             color
@@ -1212,10 +848,7 @@ local function getGunTool()
     end
 
     local backpack =
-        player:
-            FindFirstChildOfClass(
-                "Backpack"
-            )
+        player:FindFirstChildOfClass("Backpack")
 
     if backpack then
         table.insert(
@@ -1224,33 +857,16 @@ local function getGunTool()
         )
     end
 
-    for _, container
-        in ipairs(
-            containers
-        ) do
-
-        for _, object
-            in ipairs(
-                container:
-                    GetChildren()
-            ) do
-
+    for _, container in ipairs(containers) do
+        for _, object in ipairs(container:GetChildren()) do
             if object:IsA("Tool") then
-                local lower =
+                local name =
                     string.lower(
                         object.Name
                     )
 
-                if lower:find(
-                        "gun",
-                        1,
-                        true
-                    )
-                    or lower:find(
-                        "revolver",
-                        1,
-                        true
-                    ) then
+                if name:find("gun", 1, true)
+                    or name:find("revolver", 1, true) then
 
                     return object
                 end
@@ -1277,72 +893,54 @@ local function quickShoot()
         return
     end
 
-    sheriff.shooting =
-        true
+    sheriff.shooting = true
 
     task.spawn(function()
-        if gun.Parent
-            ~= character then
-
+        if gun.Parent ~= character then
             pcall(function()
-                humanoid:
-                    EquipTool(gun)
+                humanoid:EquipTool(gun)
             end)
 
-            RunService.Heartbeat:
-                Wait()
+            RunService.Heartbeat:Wait()
         end
 
-        if gun.Parent
-            == character then
-
+        if gun.Parent == character then
             pcall(function()
-                gun:
-                    Activate()
+                gun:Activate()
             end)
 
             task.wait(0.06)
 
             if humanoid then
                 pcall(function()
-                    humanoid:
-                        UnequipTools()
+                    humanoid:UnequipTools()
                 end)
             end
         end
 
-        sheriff.shooting =
-            false
+        sheriff.shooting = false
     end)
 end
 
-track(
-    UserInputService.InputBegan:
-        Connect(function(
-            input,
-            gameProcessed
-        )
-
-            if gameProcessed
-                or not sheriff.quickShot then
-
-                return
-            end
-
-            if input.UserInputType
-                    == Enum.UserInputType.MouseButton1
-                or input.UserInputType
-                    == Enum.UserInputType.Touch then
-
-                quickShoot()
-            end
-        end)
+track(UserInputService.InputBegan:Connect(function(
+    input,
+    gameProcessed
 )
+    if gameProcessed
+        or not sheriff.quickShot then
+
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        quickShoot()
+    end
+end))
 
 local function pressThrowKey()
-    if UserInputService:
-        GetFocusedTextBox() then
-
+    if UserInputService:GetFocusedTextBox() then
         return false
     end
 
@@ -1368,74 +966,50 @@ local function pressThrowKey()
     end
 
     return pcall(function()
-        VirtualInputManager:
-            SendKeyEvent(
-                true,
-                Enum.KeyCode.E,
-                false,
-                game
-            )
+        VirtualInputManager:SendKeyEvent(
+            true,
+            Enum.KeyCode.E,
+            false,
+            game
+        )
 
         task.wait(0.06)
 
-        VirtualInputManager:
-            SendKeyEvent(
-                false,
-                Enum.KeyCode.E,
-                false,
-                game
-            )
+        VirtualInputManager:SendKeyEvent(
+            false,
+            Enum.KeyCode.E,
+            false,
+            game
+        )
     end)
 end
 
 local function findVisibleThrowButton()
     local playerGui =
-        player:
-            FindFirstChildOfClass(
-                "PlayerGui"
-            )
+        player:FindFirstChildOfClass("PlayerGui")
 
     if not playerGui then
         return nil
     end
 
-    for _, object
-        in ipairs(
-            playerGui:
-                GetDescendants()
-        ) do
-
+    for _, object in ipairs(playerGui:GetDescendants()) do
         if object:IsA("GuiButton")
             and object.Visible then
 
             local name =
-                string.lower(
-                    object.Name
-                )
+                string.lower(object.Name)
 
             local text = ""
 
-            if object:IsA(
-                "TextButton"
-            ) then
-
+            if object:IsA("TextButton") then
                 text =
                     string.lower(
-                        object.Text
-                        or ""
+                        object.Text or ""
                     )
             end
 
-            if name:find(
-                    "throw",
-                    1,
-                    true
-                )
-                or text:find(
-                    "throw",
-                    1,
-                    true
-                ) then
+            if name:find("throw", 1, true)
+                or text:find("throw", 1, true) then
 
                 return object
             end
@@ -1462,31 +1036,29 @@ local function pressMobileThrowButton()
         + button.AbsoluteSize / 2
 
     return pcall(function()
-        VirtualInputManager:
-            SendMouseButtonEvent(
-                center.X,
-                center.Y,
-                0,
-                true,
-                game,
-                0
-            )
+        VirtualInputManager:SendMouseButtonEvent(
+            center.X,
+            center.Y,
+            0,
+            true,
+            game,
+            0
+        )
 
         task.wait(0.04)
 
-        VirtualInputManager:
-            SendMouseButtonEvent(
-                center.X,
-                center.Y,
-                0,
-                false,
-                game,
-                0
-            )
+        VirtualInputManager:SendMouseButtonEvent(
+            center.X,
+            center.Y,
+            0,
+            false,
+            game,
+            0
+        )
     end)
 end
 
-local function throwKnifeOnce()
+throwKnifeOnce = function()
     if murderer.throwing
         or not humanoid
         or not character then
@@ -1504,32 +1076,20 @@ local function throwKnifeOnce()
         return false
     end
 
-    murderer.throwing =
-        true
+    murderer.throwing = true
 
-    local success =
-        false
+    local success = false
 
-    if knife.Parent
-        ~= character then
-
+    if knife.Parent ~= character then
         pcall(function()
-            humanoid:
-                EquipTool(
-                    knife
-                )
+            humanoid:EquipTool(knife)
         end)
 
-        RunService.Heartbeat:
-            Wait()
-
-        RunService.Heartbeat:
-            Wait()
+        RunService.Heartbeat:Wait()
+        RunService.Heartbeat:Wait()
     end
 
-    if knife.Parent
-        == character then
-
+    if knife.Parent == character then
         success =
             pressThrowKey()
 
@@ -1551,30 +1111,19 @@ end
 
 local function findGunDrop()
     local exact =
-        workspace:
-            FindFirstChild(
-                "GunDrop",
-                true
-            )
+        workspace:FindFirstChild(
+            "GunDrop",
+            true
+        )
 
     if exact then
         return exact
     end
 
-    for _, object
-        in ipairs(
-            workspace:
-                GetDescendants()
-        ) do
-
+    for _, object in ipairs(workspace:GetDescendants()) do
         local name =
-            string.lower(
-                object.Name
-            ):
-            gsub(
-                "[%s_%-%./]",
-                ""
-            )
+            string.lower(object.Name)
+            :gsub("[%s_%-%./]", "")
 
         if name == "gundrop"
             or name == "droppedgun"
@@ -1588,9 +1137,7 @@ local function findGunDrop()
     return nil
 end
 
-local function getObjectPart(
-    object
-)
+local function getObjectPart(object)
     if not object then
         return nil
     end
@@ -1601,15 +1148,10 @@ local function getObjectPart(
 
     if object:IsA("Tool") then
         local handle =
-            object:
-                FindFirstChild(
-                    "Handle"
-                )
+            object:FindFirstChild("Handle")
 
         if handle
-            and handle:IsA(
-                "BasePart"
-            ) then
+            and handle:IsA("BasePart") then
 
             return handle
         end
@@ -1621,17 +1163,13 @@ local function getObjectPart(
         return object.PrimaryPart
     end
 
-    return object:
-        FindFirstChildWhichIsA(
-            "BasePart",
-            true
-        )
+    return object:FindFirstChildWhichIsA(
+        "BasePart",
+        true
+    )
 end
 
-local function touchObject(
-    object,
-    part
-)
+local function touchObject(object, part)
     if not object
         or not part
         or not rootPart then
@@ -1655,16 +1193,8 @@ local function touchObject(
         end)
     end
 
-    for _, descendant
-        in ipairs(
-            object:
-                GetDescendants()
-        ) do
-
-        if descendant:
-            IsA(
-                "ProximityPrompt"
-            )
+    for _, descendant in ipairs(object:GetDescendants()) do
+        if descendant:IsA("ProximityPrompt")
             and fireproximityprompt then
 
             pcall(function()
@@ -1689,9 +1219,7 @@ local function pickupGun()
         findGunDrop()
 
     local part =
-        getObjectPart(
-            drop
-        )
+        getObjectPart(drop)
 
     if not drop
         or not part then
@@ -1713,7 +1241,6 @@ local function pickupGun()
 
     local success =
         pcall(function()
-
             rootPart.AssemblyLinearVelocity =
                 Vector3.zero
 
@@ -1733,8 +1260,7 @@ local function pickupGun()
                 part
             )
 
-            RunService.Heartbeat:
-                Wait()
+            RunService.Heartbeat:Wait()
 
             touchObject(
                 drop,
@@ -1774,52 +1300,40 @@ task.spawn(function()
     end
 end)
 
-local function isMainCoin(
-    object
-)
-    if not object
-        or not object:IsA(
-            "BasePart"
-        )
-        or object.Name
-            ~= "MainCoin" then
+local function isMainCoin(object)
+    return object
+        and object:IsA("BasePart")
+        and object.Name == "MainCoin"
+end
+
+local function coinIsFullyOpaque(coin)
+    if not coin
+        or not coin:IsA("BasePart") then
 
         return false
     end
 
-    local parent =
-        object.Parent
+    -- user requested absolutely no transparency at all
+    if coin.Transparency ~= 0 then
+        return false
+    end
 
-    if parent
-        and parent.Name
-            == "CoinVisual" then
-
-        return true
+    if coin.LocalTransparencyModifier ~= 0 then
+        return false
     end
 
     return true
 end
 
-local function addCoin(
-    coin
-)
-    if not isMainCoin(
-        coin
-    ) then
+local function addCoin(coin)
+    if not isMainCoin(coin)
+        or coinFarm.coinLookup[coin] then
 
         return
     end
 
-    if coinFarm.coinLookup[
-        coin
-    ] then
-
-        return
-    end
-
-    coinFarm.coinLookup[
-        coin
-    ] = true
+    coinFarm.coinLookup[coin] =
+        true
 
     table.insert(
         coinFarm.coins,
@@ -1827,28 +1341,16 @@ local function addCoin(
     )
 end
 
-local function removeCoin(
-    coin
-)
-    if not coinFarm.coinLookup[
-        coin
-    ] then
-
+local function removeCoin(coin)
+    if not coinFarm.coinLookup[coin] then
         return
     end
 
-    coinFarm.coinLookup[
-        coin
-    ] = nil
+    coinFarm.coinLookup[coin] =
+        nil
 
-    for index =
-        #coinFarm.coins,
-        1,
-        -1 do
-
-        if coinFarm.coins[index]
-            == coin then
-
+    for index = #coinFarm.coins, 1, -1 do
+        if coinFarm.coins[index] == coin then
             table.remove(
                 coinFarm.coins,
                 index
@@ -1868,91 +1370,48 @@ local function buildCoinCache()
         coinFarm.coinLookup
     )
 
-    for _, object
-        in ipairs(
-            workspace:
-                GetDescendants()
-        ) do
-
-        if isMainCoin(
-            object
-        ) then
-
-            addCoin(
-                object
-            )
+    -- only one full scan when script starts
+    for _, object in ipairs(workspace:GetDescendants()) do
+        if isMainCoin(object) then
+            addCoin(object)
         end
     end
 end
 
 buildCoinCache()
 
-track(
-    workspace.DescendantAdded:
-        Connect(function(object)
+track(workspace.DescendantAdded:Connect(function(object)
+    if isMainCoin(object) then
+        addCoin(object)
+    end
+end))
 
-            if isMainCoin(
-                object
-            ) then
+track(workspace.DescendantRemoving:Connect(function(object)
+    if coinFarm.coinLookup[object] then
+        removeCoin(object)
+    end
+end))
 
-                addCoin(
-                    object
-                )
-            end
-        end)
-)
-
-track(
-    workspace.DescendantRemoving:
-        Connect(function(object)
-
-            if coinFarm.coinLookup[
-                object
-            ] then
-
-                removeCoin(
-                    object
-                )
-            end
-        end)
-)
-
-local function coinExists(
-    coin
-)
+local function coinExists(coin)
     return coin
-        and coinFarm.coinLookup[
-            coin
-        ]
+        and coinFarm.coinLookup[coin]
         and coin.Parent
-        and coin:
-            IsDescendantOf(
-                workspace
-            )
-        and coin.Transparency
-            < 0.95
+        and coin:IsDescendantOf(workspace)
+        and coinIsFullyOpaque(coin)
 end
 
-local function cleanDeadCoins()
-    for index =
-        #coinFarm.coins,
-        1,
-        -1 do
-
+local function cleanCoinCache()
+    for index = #coinFarm.coins, 1, -1 do
         local coin =
             coinFarm.coins[index]
 
         if not coin
             or not coin.Parent
-            or not coin:
-                IsDescendantOf(
-                    workspace
-                ) then
+            or not coin:IsDescendantOf(workspace) then
 
             if coin then
-                coinFarm.coinLookup[
-                    coin
-                ] = nil
+                coinFarm.coinLookup[coin] =
+                    nil
             end
 
             table.remove(
@@ -1972,16 +1431,12 @@ local function getNearestCoin()
     local bestDistance =
         math.huge
 
-    for _, coin
-        in ipairs(
-            coinFarm.coins
-        ) do
+    local rootPosition =
+        rootPart.Position
 
-        if coinExists(
-            coin
-        ) then
-
-            local underPosition =
+    for _, coin in ipairs(coinFarm.coins) do
+        if coinExists(coin) then
+            local below =
                 coin.Position
                 - Vector3.new(
                     0,
@@ -1991,13 +1446,11 @@ local function getNearestCoin()
 
             local distance =
                 (
-                    underPosition
-                    - rootPart.Position
+                    below
+                    - rootPosition
                 ).Magnitude
 
-            if distance
-                < bestDistance then
-
+            if distance < bestDistance then
                 bestDistance =
                     distance
 
@@ -2010,9 +1463,22 @@ local function getNearestCoin()
     return bestCoin
 end
 
-local function setRootPosition(
-    position
-)
+local function moveCoinPlatform(position)
+    local platform =
+        ensureCoinPlatform()
+
+    platform.CFrame =
+        CFrame.new(
+            position
+            - Vector3.new(
+                0,
+                3.15,
+                0
+            )
+        )
+end
+
+local function setFarmPosition(position)
     if not rootPart
         or not rootPart.Parent then
 
@@ -2024,9 +1490,7 @@ local function setRootPosition(
         - rootPart.Position
 
     rootPart.CFrame =
-        CFrame.new(
-            position
-        )
+        CFrame.new(position)
         * rotation
 
     rootPart.AssemblyLinearVelocity =
@@ -2035,33 +1499,31 @@ local function setRootPosition(
     rootPart.AssemblyAngularVelocity =
         Vector3.zero
 
-    local platform =
-        ensureCoinPlatform()
-
-    platform.CFrame =
-        CFrame.new(
-            position
-            - Vector3.new(
-                0,
-                3.1,
-                0
-            )
-        )
+    moveCoinPlatform(
+        position
+    )
 end
 
-local function smoothFlyTo(
+local function smoothMove(
     destination,
     speed,
-    stopDistance
+    stopDistance,
+    targetCoin
 )
     stopDistance =
-        stopDistance or 1
+        stopDistance or 0.8
 
     while alive
         and coinFarm.enabled
         and not coinFarm.fullBagDebounce
         and rootPart
         and rootPart.Parent do
+
+        if targetCoin
+            and not coinExists(targetCoin) then
+
+            return false
+        end
 
         local current =
             rootPart.Position
@@ -2073,10 +1535,8 @@ local function smoothFlyTo(
         local distance =
             offset.Magnitude
 
-        if distance
-            <= stopDistance then
-
-            setRootPosition(
+        if distance <= stopDistance then
+            setFarmPosition(
                 destination
             )
 
@@ -2084,8 +1544,7 @@ local function smoothFlyTo(
         end
 
         local dt =
-            RunService.Heartbeat:
-                Wait()
+            RunService.Heartbeat:Wait()
 
         if not coinFarm.enabled then
             return false
@@ -2100,37 +1559,28 @@ local function smoothFlyTo(
         local direction =
             offset.Unit
 
-        local newPosition =
+        setFarmPosition(
             current
             + direction * step
-
-        setRootPosition(
-            newPosition
         )
     end
 
     return false
 end
 
-local function waitForCoinPickup(
-    coin
-)
-    local start =
+local function waitForCoinPickup(coin)
+    local started =
         os.clock()
 
     while alive
         and coinFarm.enabled
-        and os.clock() - start
-            < 0.45 do
+        and os.clock() - started < 0.35 do
 
-        if not coinExists(
-            coin
-        ) then
-
+        if not coinExists(coin) then
             return true
         end
 
-        task.wait(0.02)
+        task.wait(0.015)
     end
 
     return not coinExists(
@@ -2138,20 +1588,14 @@ local function waitForCoinPickup(
     )
 end
 
-local function farmSingleCoin(
-    coin
-)
-    if not coinExists(
-        coin
-    )
+local function farmCoin(coin)
+    if not coinExists(coin)
         or not rootPart then
 
         return false
     end
 
-    disableCoinFarmCollision()
-
-    local underPosition =
+    local below =
         coin.Position
         - Vector3.new(
             0,
@@ -2159,22 +1603,16 @@ local function farmSingleCoin(
             0
         )
 
-    local reachedBelow =
-        smoothFlyTo(
-            underPosition,
+    local movedBelow =
+        smoothMove(
+            below,
             coinFarm.travelSpeed,
-            1.2
+            0.75,
+            coin
         )
 
-    if not reachedBelow
-        or not coinFarm.enabled then
-
-        return false
-    end
-
-    if not coinExists(
-        coin
-    ) then
+    if not movedBelow
+        or not coinExists(coin) then
 
         return false
     end
@@ -2182,20 +1620,21 @@ local function farmSingleCoin(
     local coinPosition =
         coin.Position
 
-    local reachedCoin =
-        smoothFlyTo(
+    local wentUp =
+        smoothMove(
             coinPosition,
             coinFarm.verticalSpeed,
-            coinFarm.touchDistance
+            1.5,
+            coin
         )
 
-    if not reachedCoin then
+    if not wentUp then
         return false
     end
 
     if firetouchinterest
-        and coinExists(coin)
-        and rootPart then
+        and rootPart
+        and coinExists(coin) then
 
         pcall(function()
             firetouchinterest(
@@ -2217,36 +1656,29 @@ local function farmSingleCoin(
             coin
         )
 
-    smoothFlyTo(
-        underPosition,
+    smoothMove(
+        below,
         coinFarm.verticalSpeed,
-        1.2
+        0.8
     )
 
     if pickedUp then
-        coinFarm.pickedUp +=
-            1
+        coinFarm.pickedUp += 1
     end
 
     return pickedUp
 end
 
-local function isGuiActuallyVisible(
-    guiObject
-)
+local function isGuiActuallyVisible(guiObject)
     if not guiObject
-        or not guiObject:IsA(
-            "GuiObject"
-        )
+        or not guiObject:IsA("GuiObject")
         or not guiObject.Visible then
 
         return false
     end
 
-    if guiObject.AbsoluteSize.X
-            <= 0
-        or guiObject.AbsoluteSize.Y
-            <= 0 then
+    if guiObject.AbsoluteSize.X <= 0
+        or guiObject.AbsoluteSize.Y <= 0 then
 
         return false
     end
@@ -2255,17 +1687,13 @@ local function isGuiActuallyVisible(
         guiObject
 
     while current do
-        if current:IsA(
-            "GuiObject"
-        )
+        if current:IsA("GuiObject")
             and not current.Visible then
 
             return false
         end
 
-        if current:IsA(
-            "ScreenGui"
-        )
+        if current:IsA("ScreenGui")
             and not current.Enabled then
 
             return false
@@ -2284,14 +1712,10 @@ local function isGuiActuallyVisible(
     local viewport =
         camera.ViewportSize
 
-    if position.X + size.X
-            <= 0
-        or position.Y + size.Y
-            <= 0
-        or position.X
-            >= viewport.X
-        or position.Y
-            >= viewport.Y then
+    if position.X + size.X <= 0
+        or position.Y + size.Y <= 0
+        or position.X >= viewport.X
+        or position.Y >= viewport.Y then
 
         return false
     end
@@ -2301,54 +1725,34 @@ end
 
 local function findVisibleCoinBagFullText()
     local playerGui =
-        player:
-            FindFirstChildOfClass(
-                "PlayerGui"
-            )
+        player:FindFirstChildOfClass("PlayerGui")
 
     if not playerGui then
         return nil
     end
 
-    for _, object
-        in ipairs(
-            playerGui:
-                GetDescendants()
-        ) do
-
+    for _, object in ipairs(playerGui:GetDescendants()) do
         if object:IsA("TextLabel")
             or object:IsA("TextButton")
             or object:IsA("TextBox") then
 
             local text =
                 tostring(
-                    object.Text
-                    or ""
+                    object.Text or ""
                 )
 
             local normalized =
-                string.lower(
-                    text
-                ):
-                gsub(
-                    "%s+",
-                    ""
-                ):
-                gsub(
-                    "[^%w]",
-                    ""
-                )
+                string.lower(text)
+                :gsub("%s+", "")
+                :gsub("[^%w]", "")
 
             if normalized:find(
                     "coinbagfull",
                     1,
                     true
                 )
-                and object.TextTransparency
-                    < 0.95
-                and isGuiActuallyVisible(
-                    object
-                ) then
+                and object.TextTransparency < 0.95
+                and isGuiActuallyVisible(object) then
 
                 return object
             end
@@ -2365,10 +1769,10 @@ local function handleCoinBagFull()
         return
     end
 
-    local bagFullText =
+    local bagText =
         findVisibleCoinBagFullText()
 
-    if not bagFullText then
+    if not bagText then
         return
     end
 
@@ -2382,38 +1786,37 @@ local function handleCoinBagFull()
         nil
 
     destroyCoinPlatform()
+    restoreCoinCollision()
 
     pcall(function()
-        bagFullText:
-            Destroy()
+        bagText:Destroy()
     end)
-
-    restoreCoinFarmCollision()
 
     if humanoid
         and humanoid.Health > 0 then
 
         pcall(function()
-            humanoid.Health =
-                0
+            humanoid.Health = 0
         end)
     end
 
     task.spawn(function()
         local newCharacter =
-            player.CharacterAdded:
-                Wait()
+            player.CharacterAdded:Wait()
 
         if not alive then
             return
         end
 
-        task.wait(0.35)
+        task.wait(0.3)
 
-        if player.Character
-            == newCharacter then
-
+        if player.Character == newCharacter then
             refreshCharacter()
+        end
+
+        if coinFarm.enabled then
+            disableCoinCharacterCollision()
+            ensureCoinPlatform()
         end
 
         coinFarm.fullBagDebounce =
@@ -2432,7 +1835,7 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    local cleanupClock =
+    local lastCleanup =
         os.clock()
 
     while alive do
@@ -2441,22 +1844,17 @@ task.spawn(function()
             or coinFarm.fullBagDebounce
             or not rootPart then
 
-            task.wait(0.03)
+            task.wait(0.025)
 
             continue
         end
 
-        if os.clock()
-            - cleanupClock > 3 then
-
-            cleanupClock =
+        if os.clock() - lastCleanup > 5 then
+            lastCleanup =
                 os.clock()
 
-            cleanDeadCoins()
+            cleanCoinCache()
         end
-
-        coinFarm.busy =
-            true
 
         local coin =
             getNearestCoin()
@@ -2465,192 +1863,159 @@ task.spawn(function()
             coin
 
         if coin then
-            farmSingleCoin(
+            coinFarm.busy =
+                true
+
+            farmCoin(
                 coin
             )
-        else
-            destroyCoinPlatform()
 
-            task.wait(0.08)
+            coinFarm.busy =
+                false
+        else
+            coinFarm.target =
+                nil
+
+            task.wait(0.06)
         end
 
-        coinFarm.target =
-            nil
-
-        coinFarm.busy =
-            false
-
-        task.wait(0.01)
+        task.wait(0.008)
     end
 end)
 
-track(
-    UserInputService.JumpRequest:
-        Connect(function()
+track(player.CharacterAdded:Connect(function()
+    task.wait(0.2)
 
-            if movement.infiniteJump
-                and humanoid then
+    refreshCharacter()
 
-                humanoid:
-                    ChangeState(
-                        Enum.HumanoidStateType.Jumping
-                    )
-            end
-        end)
-)
+    coinFarm.busy =
+        false
 
-track(
-    RunService.Stepped:
-        Connect(function()
+    gunPickup.busy =
+        false
 
-            if character then
-                if coinFarm.enabled then
-                    disableCoinFarmCollision()
+    sheriff.shooting =
+        false
 
-                elseif movement.noclip then
-                    for _, object
-                        in ipairs(
-                            character:
-                                GetDescendants()
-                        ) do
+    murderer.throwing =
+        false
 
-                        if object:IsA(
-                            "BasePart"
-                        ) then
+    table.clear(
+        coinFarm.originalCollision
+    )
 
-                            if movement.noclipParts[
-                                object
-                            ] == nil then
+    if coinFarm.enabled then
+        disableCoinCharacterCollision()
+        ensureCoinPlatform()
+    end
+end))
 
-                                movement.noclipParts[
-                                    object
-                                ] =
-                                    object.CanCollide
-                            end
+track(UserInputService.JumpRequest:Connect(function()
+    if movement.infiniteJump
+        and humanoid then
 
-                            object.CanCollide =
-                                false
-                        end
+        humanoid:ChangeState(
+            Enum.HumanoidStateType.Jumping
+        )
+    end
+end))
+
+track(RunService.Stepped:Connect(function()
+    if character
+        and not coinFarm.enabled then
+
+        if movement.noclip then
+            for _, object in ipairs(character:GetDescendants()) do
+                if object:IsA("BasePart") then
+                    if movement.noclipParts[object] == nil then
+                        movement.noclipParts[object] =
+                            object.CanCollide
                     end
 
-                elseif next(
-                    movement.noclipParts
-                ) then
-
-                    restoreNoclip()
+                    object.CanCollide =
+                        false
                 end
             end
 
-            if antiFling.enabled then
-                disableOtherPlayerCollision()
+        elseif next(movement.noclipParts) then
+            restoreNoclip()
+        end
+    end
 
-            elseif next(
-                antiFling.originalCollision
-            ) then
+    if antiFling.enabled then
+        disableOtherPlayerCollision()
 
-                restoreOtherPlayerCollision()
-            end
-        end)
-)
+    elseif next(antiFling.originalCollision) then
+        restoreOtherPlayerCollision()
+    end
+end))
 
-track(
-    RunService.Heartbeat:
-        Connect(function(dt)
+track(RunService.Heartbeat:Connect(function(dt)
+    if not humanoid
+        or not rootPart then
 
-            if not humanoid
-                or not rootPart then
+        return
+    end
 
-                return
-            end
+    if movement.speedEnabled
+        and not coinFarm.enabled then
 
-            if movement.speedEnabled
-                and not coinFarm.enabled then
+        humanoid.WalkSpeed =
+            movement.speed
 
-                humanoid.WalkSpeed =
-                    movement.speed
+    elseif not coinFarm.enabled
+        and humanoid.WalkSpeed ~= originalWalkSpeed then
 
-            elseif not coinFarm.enabled
-                and humanoid.WalkSpeed
-                    ~= originalWalkSpeed then
+        humanoid.WalkSpeed =
+            originalWalkSpeed
+    end
 
-                humanoid.WalkSpeed =
-                    originalWalkSpeed
-            end
+    if movement.spin
+        and not coinFarm.enabled then
 
-            if movement.spin
-                and not coinFarm.enabled then
+        rootPart.CFrame =
+            rootPart.CFrame
+            * CFrame.Angles(
+                0,
+                math.rad(
+                    movement.spinSpeed * dt
+                ),
+                0
+            )
+    end
 
-                rootPart.CFrame =
-                    rootPart.CFrame
-                    * CFrame.Angles(
-                        0,
-                        math.rad(
-                            movement.spinSpeed
-                            * dt
-                        ),
-                        0
-                    )
-            end
+    if murderer.autoThrow
+        and throwKnifeOnce
+        and not murderer.throwing
+        and os.clock() - murderer.lastThrow >= murderer.throwDelay then
 
-            if murderer.autoThrow
-                and not murderer.throwing
-                and os.clock()
-                    - murderer.lastThrow
-                    >= murderer.throwDelay then
+        murderer.lastThrow =
+            os.clock()
 
-                murderer.lastThrow =
-                    os.clock()
+        task.spawn(
+            throwKnifeOnce
+        )
+    end
+end))
 
-                task.spawn(
-                    throwKnifeOnce
-                )
-            end
-        end)
-)
+gui = create("ScreenGui", {
+    Name = "THH_HUB",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 999999,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+}, getUIParent())
 
-gui =
-    create(
-        "ScreenGui",
-        {
-            Name =
-                "THH_HUB",
-
-            ResetOnSpawn =
-                false,
-
-            IgnoreGuiInset =
-                true,
-
-            DisplayOrder =
-                999999,
-
-            ZIndexBehavior =
-                Enum.ZIndexBehavior.Sibling
-        },
-        getUIParent()
-    )
-
-blur =
-    create(
-        "BlurEffect",
-        {
-            Name =
-                "THH_HUB_Blur",
-
-            Size =
-                20
-        },
-        Lighting
-    )
+blur = create("BlurEffect", {
+    Name = "THH_HUB_Blur",
+    Size = 20
+}, Lighting)
 
 local function loadVampauth()
     local success, result =
         pcall(function()
-
             if not loadstring then
-                error(
-                    "loadstring unavailable"
-                )
+                error("loadstring unavailable")
             end
 
             local source =
@@ -2659,22 +2024,17 @@ local function loadVampauth()
                 )
 
             local loader =
-                loadstring(
-                    source
-                )
+                loadstring(source)
 
             if not loader then
-                error(
-                    "Vampauth failed"
-                )
+                error("Vampauth failed")
             end
 
             return loader()
         end)
 
     if success
-        and type(result)
-            == "table" then
+        and type(result) == "table" then
 
         return result
     end
@@ -2687,9 +2047,7 @@ local vampauthClient
 local function getHWID()
     local success, result =
         pcall(function()
-
-            return RbxAnalyticsService:
-                GetClientId()
+            return RbxAnalyticsService:GetClientId()
         end)
 
     if success then
@@ -2701,21 +2059,11 @@ local function getHWID()
     )
 end
 
-local function validateKey(
-    key
-)
+local function validateKey(key)
     key =
-        tostring(
-            key or ""
-        ):
-        gsub(
-            "^%s+",
-            ""
-        ):
-        gsub(
-            "%s+$",
-            ""
-        )
+        tostring(key or "")
+        :gsub("^%s+", "")
+        :gsub("%s+$", "")
 
     if key == "" then
         return false,
@@ -2733,19 +2081,11 @@ local function validateKey(
 
         local success, result =
             pcall(function()
-
                 return Vampauth.new({
-                    projectId =
-                        PROJECT_ID,
-
-                    authSecret =
-                        AUTH_SECRET,
-
-                    hwid =
-                        getHWID(),
-
-                    debug =
-                        false
+                    projectId = PROJECT_ID,
+                    authSecret = AUTH_SECRET,
+                    hwid = getHWID(),
+                    debug = false
                 })
             end)
 
@@ -2762,11 +2102,9 @@ local function validateKey(
 
     local success, valid, data =
         pcall(function()
-
-            return vampauthClient:
-                Check(
-                    key
-                )
+            return vampauthClient:Check(
+                key
+            )
         end)
 
     if not success then
@@ -2780,14 +2118,9 @@ local function validateKey(
     end
 
     local messages = {
-        KEY_NOT_FOUND =
-            "invalid key",
-
-        KEY_EXPIRED =
-            "key expired",
-
-        KEY_BANNED =
-            "key banned",
+        KEY_NOT_FOUND = "invalid key",
+        KEY_EXPIRED = "key expired",
+        KEY_BANNED = "key banned",
 
         FINGERPRINT_MISMATCH =
             "key is linked to another device",
@@ -2804,8 +2137,7 @@ local function validateKey(
 
     local reason =
         tostring(
-            data
-            or "invalid key"
+            data or "invalid key"
         )
 
     return false,
@@ -2816,71 +2148,62 @@ end
 local buildChooser
 local buildMainMenu
 
-local keyOverlay =
-    create(
-        "Frame",
-        {
-            Size =
-                UDim2.fromScale(
-                    1,
-                    1
-                ),
+local keyOverlay = create("Frame", {
+    Size =
+        UDim2.fromScale(
+            1,
+            1
+        ),
 
-            BackgroundColor3 =
-                Color3.fromRGB(
-                    6,
-                    7,
-                    9
-                ),
+    BackgroundColor3 =
+        Color3.fromRGB(
+            6,
+            7,
+            9
+        ),
 
-            BackgroundTransparency =
-                0.04,
+    BackgroundTransparency =
+        0.04,
 
-            BorderSizePixel =
-                0
-        },
-        gui
-    )
+    BorderSizePixel =
+        0
+}, gui)
 
 local backgroundGradient =
-    create(
-        "UIGradient",
-        {
-            Color =
-                ColorSequence.new({
-                    ColorSequenceKeypoint.new(
-                        0,
-                        Color3.fromRGB(
-                            7,
-                            8,
-                            10
-                        )
-                    ),
-
-                    ColorSequenceKeypoint.new(
-                        0.5,
-                        Color3.fromRGB(
-                            31,
-                            33,
-                            38
-                        )
-                    ),
-
-                    ColorSequenceKeypoint.new(
-                        1,
-                        Color3.fromRGB(
-                            7,
-                            8,
-                            10
-                        )
+    create("UIGradient", {
+        Color =
+            ColorSequence.new({
+                ColorSequenceKeypoint.new(
+                    0,
+                    Color3.fromRGB(
+                        7,
+                        8,
+                        10
                     )
-                }),
+                ),
 
-            Rotation =
-                -20
-        },
-        keyOverlay
-    )
+                ColorSequenceKeypoint.new(
+                    0.5,
+                    Color3.fromRGB(
+                        31,
+                        33,
+                        38
+                    )
+                ),
+
+                ColorSequenceKeypoint.new(
+                    1,
+                    Color3.fromRGB(
+                        7,
+                        8,
+                        10
+                    )
+                )
+            }),
+
+        Rotation =
+            -20
+    }, keyOverlay)
 
 task.spawn(function()
     while alive
@@ -2890,8 +2213,7 @@ task.spawn(function()
             backgroundGradient,
             4,
             {
-                Rotation =
-                    20
+                Rotation = 20
             }
         )
 
@@ -2905,8 +2227,7 @@ task.spawn(function()
             backgroundGradient,
             4,
             {
-                Rotation =
-                    -20
+                Rotation = -20
             }
         )
 
@@ -2914,66 +2235,57 @@ task.spawn(function()
     end
 end)
 
-local keyWindow =
-    create(
-        "Frame",
-        {
-            AnchorPoint =
-                Vector2.new(
-                    0.5,
-                    0.5
-                ),
+local keyWindow = create("Frame", {
+    AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        ),
 
-            Position =
-                UDim2.fromScale(
-                    0.5,
-                    0.5
-                ),
+    Position =
+        UDim2.fromScale(
+            0.5,
+            0.5
+        ),
 
-            Size =
-                UDim2.new(
-                    0.9,
-                    0,
-                    0,
-                    348
-                ),
+    Size =
+        UDim2.new(
+            0.9,
+            0,
+            0,
+            348
+        ),
 
-            BackgroundColor3 =
-                Color3.fromRGB(
-                    66,
-                    68,
-                    74
-                ),
+    BackgroundColor3 =
+        Color3.fromRGB(
+            66,
+            68,
+            74
+        ),
 
-            BackgroundTransparency =
-                0.22,
+    BackgroundTransparency =
+        0.22,
 
-            BorderSizePixel =
-                0,
+    BorderSizePixel =
+        0,
 
-            Active =
-                true
-        },
-        keyOverlay
-    )
+    Active =
+        true
+}, keyOverlay)
 
-create(
-    "UISizeConstraint",
-    {
-        MinSize =
-            Vector2.new(
-                300,
-                338
-            ),
+create("UISizeConstraint", {
+    MinSize =
+        Vector2.new(
+            300,
+            338
+        ),
 
-        MaxSize =
-            Vector2.new(
-                440,
-                348
-            )
-    },
-    keyWindow
-)
+    MaxSize =
+        Vector2.new(
+            440,
+            348
+        )
+}, keyWindow)
 
 addCorner(
     keyWindow,
@@ -2991,205 +2303,182 @@ addStroke(
     0.52
 )
 
-local keyHeader =
-    create(
-        "Frame",
-        {
-            Size =
-                UDim2.new(
-                    1,
-                    0,
-                    0,
-                    76
-                ),
+local keyHeader = create("Frame", {
+    Size =
+        UDim2.new(
+            1,
+            0,
+            0,
+            76
+        ),
 
-            BackgroundTransparency =
-                1,
+    BackgroundTransparency =
+        1,
 
-            Active =
-                true
-        },
-        keyWindow
-    )
+    Active =
+        true
+}, keyWindow)
 
 makeDraggable(
     keyWindow,
     keyHeader
 )
 
-local keyIcon =
-    create(
-        "ImageLabel",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    17,
-                    0,
-                    14
-                ),
+local keyIcon = create("ImageLabel", {
+    Position =
+        UDim2.new(
+            0,
+            17,
+            0,
+            14
+        ),
 
-            Size =
-                UDim2.fromOffset(
-                    48,
-                    48
-                ),
+    Size =
+        UDim2.fromOffset(
+            48,
+            48
+        ),
 
-            BackgroundColor3 =
-                Colors.Control,
+    BackgroundColor3 =
+        Colors.Control,
 
-            BackgroundTransparency =
-                0.05,
+    BackgroundTransparency =
+        0.05,
 
-            BorderSizePixel =
-                0,
+    BorderSizePixel =
+        0,
 
-            Image =
-                MM2_ICON
-        },
-        keyHeader
-    )
+    Image =
+        MM2_ICON
+}, keyHeader)
 
 addCorner(
     keyIcon,
     12
 )
 
-create(
-    "TextLabel",
-    {
-        Position =
-            UDim2.new(
-                0,
-                78,
-                0,
-                15
-            ),
+create("TextLabel", {
+    Position =
+        UDim2.new(
+            0,
+            78,
+            0,
+            15
+        ),
 
-        Size =
-            UDim2.new(
-                1,
-                -98,
-                0,
-                23
-            ),
-
-        BackgroundTransparency =
+    Size =
+        UDim2.new(
             1,
+            -98,
+            0,
+            23
+        ),
 
-        Text =
-            "THH HUB",
+    BackgroundTransparency =
+        1,
 
-        TextColor3 =
-            Colors.Text,
+    Text =
+        "THH HUB",
 
-        TextSize =
-            20,
+    TextColor3 =
+        Colors.Text,
 
-        Font =
-            Enum.Font.GothamBold,
+    TextSize =
+        20,
 
-        TextXAlignment =
-            Enum.TextXAlignment.Left
-    },
-    keyHeader
-)
+    Font =
+        Enum.Font.GothamBold,
 
-create(
-    "TextLabel",
-    {
-        Position =
-            UDim2.new(
-                0,
-                78,
-                0,
-                40
-            ),
+    TextXAlignment =
+        Enum.TextXAlignment.Left
+}, keyHeader)
 
-        Size =
-            UDim2.new(
-                1,
-                -98,
-                0,
-                18
-            ),
+create("TextLabel", {
+    Position =
+        UDim2.new(
+            0,
+            78,
+            0,
+            40
+        ),
 
-        BackgroundTransparency =
+    Size =
+        UDim2.new(
             1,
+            -98,
+            0,
+            18
+        ),
 
-        Text =
-            "Authentication",
+    BackgroundTransparency =
+        1,
 
-        TextColor3 =
-            Colors.SubText,
+    Text =
+        "Authentication",
 
-        TextSize =
-            12,
+    TextColor3 =
+        Colors.SubText,
 
-        Font =
-            Enum.Font.Gotham,
+    TextSize =
+        12,
 
-        TextXAlignment =
-            Enum.TextXAlignment.Left
-    },
-    keyHeader
-)
+    Font =
+        Enum.Font.Gotham,
 
-local keyBox =
-    create(
-        "TextBox",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    18,
-                    0,
-                    92
-                ),
+    TextXAlignment =
+        Enum.TextXAlignment.Left
+}, keyHeader)
 
-            Size =
-                UDim2.new(
-                    1,
-                    -36,
-                    0,
-                    48
-                ),
+local keyBox = create("TextBox", {
+    Position =
+        UDim2.new(
+            0,
+            18,
+            0,
+            92
+        ),
 
-            BackgroundColor3 =
-                Colors.Control,
+    Size =
+        UDim2.new(
+            1,
+            -36,
+            0,
+            48
+        ),
 
-            BackgroundTransparency =
-                0.05,
+    BackgroundColor3 =
+        Colors.Control,
 
-            BorderSizePixel =
-                0,
+    BackgroundTransparency =
+        0.05,
 
-            Text =
-                "",
+    BorderSizePixel =
+        0,
 
-            PlaceholderText =
-                "Enter access key",
+    Text =
+        "",
 
-            PlaceholderColor3 =
-                Colors.SubText,
+    PlaceholderText =
+        "Enter access key",
 
-            TextColor3 =
-                Colors.Text,
+    PlaceholderColor3 =
+        Colors.SubText,
 
-            TextSize =
-                14,
+    TextColor3 =
+        Colors.Text,
 
-            Font =
-                Enum.Font.Gotham,
+    TextSize =
+        14,
 
-            ClearTextOnFocus =
-                false,
+    Font =
+        Enum.Font.Gotham,
 
-            TextXAlignment =
-                Enum.TextXAlignment.Left
-        },
-        keyWindow
-    )
+    ClearTextOnFocus =
+        false,
+
+    TextXAlignment =
+        Enum.TextXAlignment.Left
+}, keyWindow)
 
 addCorner(
     keyBox,
@@ -3200,74 +2489,65 @@ addStroke(
     keyBox
 )
 
-create(
-    "UIPadding",
-    {
-        PaddingLeft =
-            UDim.new(
-                0,
-                14
-            ),
+create("UIPadding", {
+    PaddingLeft =
+        UDim.new(
+            0,
+            14
+        ),
 
-        PaddingRight =
-            UDim.new(
-                0,
-                14
-            )
-    },
-    keyBox
-)
+    PaddingRight =
+        UDim.new(
+            0,
+            14
+        )
+}, keyBox)
 
-local continueButton =
-    create(
-        "TextButton",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    18,
-                    0,
-                    154
-                ),
+local continueButton = create("TextButton", {
+    Position =
+        UDim2.new(
+            0,
+            18,
+            0,
+            154
+        ),
 
-            Size =
-                UDim2.new(
-                    1,
-                    -36,
-                    0,
-                    46
-                ),
+    Size =
+        UDim2.new(
+            1,
+            -36,
+            0,
+            46
+        ),
 
-            BackgroundColor3 =
-                Colors.Accent,
+    BackgroundColor3 =
+        Colors.Accent,
 
-            BackgroundTransparency =
-                0,
+    BackgroundTransparency =
+        0,
 
-            BorderSizePixel =
-                0,
+    BorderSizePixel =
+        0,
 
-            Text =
-                "Continue",
+    Text =
+        "Continue",
 
-            TextColor3 =
-                Color3.fromRGB(
-                    14,
-                    20,
-                    16
-                ),
+    TextColor3 =
+        Color3.fromRGB(
+            14,
+            20,
+            16
+        ),
 
-            TextSize =
-                14,
+    TextSize =
+        14,
 
-            Font =
-                Enum.Font.GothamBold,
+    Font =
+        Enum.Font.GothamBold,
 
-            AutoButtonColor =
-                false
-        },
-        keyWindow
-    )
+    AutoButtonColor =
+        false
+}, keyWindow)
 
 addCorner(
     continueButton,
@@ -3278,41 +2558,36 @@ animateButton(
     continueButton
 )
 
-local keyCard =
-    create(
-        "Frame",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    18,
-                    0,
-                    214
-                ),
+local keyCard = create("Frame", {
+    Position =
+        UDim2.new(
+            0,
+            18,
+            0,
+            214
+        ),
 
-            Size =
-                UDim2.new(
-                    1,
-                    -36,
-                    0,
-                    57
-                ),
+    Size =
+        UDim2.new(
+            1,
+            -36,
+            0,
+            57
+        ),
 
-            BackgroundColor3 =
-                Color3.fromRGB(
-                    83,
-                    85,
-                    93
-                ),
+    BackgroundColor3 =
+        Color3.fromRGB(
+            83,
+            85,
+            93
+        ),
 
-            BackgroundTransparency =
-                0.22,
+    BackgroundTransparency =
+        0.22,
 
-            BorderSizePixel =
-                0
-        },
-        keyWindow
-    )
+    BorderSizePixel =
+        0
+}, keyWindow)
 
 addCorner(
     keyCard,
@@ -3323,56 +2598,51 @@ addStroke(
     keyCard
 )
 
-local getKeyButton =
-    create(
-        "TextButton",
-        {
-            AnchorPoint =
-                Vector2.new(
-                    0.5,
-                    0.5
-                ),
+local getKeyButton = create("TextButton", {
+    AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        ),
 
-            Position =
-                UDim2.fromScale(
-                    0.5,
-                    0.5
-                ),
+    Position =
+        UDim2.fromScale(
+            0.5,
+            0.5
+        ),
 
-            Size =
-                UDim2.new(
-                    1,
-                    -12,
-                    1,
-                    -12
-                ),
+    Size =
+        UDim2.new(
+            1,
+            -12,
+            1,
+            -12
+        ),
 
-            BackgroundColor3 =
-                Colors.Control,
+    BackgroundColor3 =
+        Colors.Control,
 
-            BackgroundTransparency =
-                0.08,
+    BackgroundTransparency =
+        0.08,
 
-            BorderSizePixel =
-                0,
+    BorderSizePixel =
+        0,
 
-            Text =
-                "Get Access Key",
+    Text =
+        "Get Access Key",
 
-            TextColor3 =
-                Colors.Text,
+    TextColor3 =
+        Colors.Text,
 
-            TextSize =
-                13,
+    TextSize =
+        13,
 
-            Font =
-                Enum.Font.GothamBold,
+    Font =
+        Enum.Font.GothamBold,
 
-            AutoButtonColor =
-                false
-        },
-        keyCard
-    )
+    AutoButtonColor =
+        false
+}, keyCard)
 
 addCorner(
     getKeyButton,
@@ -3383,234 +2653,202 @@ animateButton(
     getKeyButton
 )
 
-local keyStatus =
-    create(
-        "TextLabel",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    18,
-                    0,
-                    286
-                ),
+local keyStatus = create("TextLabel", {
+    Position =
+        UDim2.new(
+            0,
+            18,
+            0,
+            286
+        ),
 
-            Size =
-                UDim2.new(
-                    1,
-                    -36,
-                    0,
-                    38
-                ),
+    Size =
+        UDim2.new(
+            1,
+            -36,
+            0,
+            38
+        ),
 
-            BackgroundTransparency =
-                1,
+    BackgroundTransparency =
+        1,
 
-            Text =
-                "paste your key",
+    Text =
+        "paste your key",
 
-            TextColor3 =
-                Colors.SubText,
+    TextColor3 =
+        Colors.SubText,
 
-            TextSize =
-                12,
+    TextSize =
+        12,
 
-            Font =
-                Enum.Font.Gotham
-        },
-        keyWindow
-    )
+    Font =
+        Enum.Font.Gotham
+}, keyWindow)
 
-local keyBusy =
-    false
+local keyBusy = false
 
-track(
-    getKeyButton.MouseButton1Click:
-        Connect(function()
+track(getKeyButton.MouseButton1Click:Connect(function()
+    local copied = false
 
-            local copied =
-                false
+    if setclipboard then
+        copied =
+            pcall(function()
+                setclipboard(
+                    KEY_FLOW
+                )
+            end)
 
-            if setclipboard then
-                copied =
-                    pcall(function()
+    elseif toclipboard then
+        copied =
+            pcall(function()
+                toclipboard(
+                    KEY_FLOW
+                )
+            end)
+    end
 
-                        setclipboard(
-                            KEY_FLOW
-                        )
-                    end)
+    keyStatus.Text =
+        copied
+        and "access key link copied"
+        or KEY_FLOW
 
-            elseif toclipboard then
-                copied =
-                    pcall(function()
+    keyStatus.TextColor3 =
+        copied
+        and Colors.Accent
+        or Colors.Text
+end))
 
-                        toclipboard(
-                            KEY_FLOW
-                        )
-                    end)
-            end
+track(continueButton.MouseButton1Click:Connect(function()
+    if keyBusy then
+        return
+    end
 
+    keyBusy =
+        true
+
+    continueButton.Text =
+        "Checking..."
+
+    keyStatus.Text =
+        "checking key..."
+
+    keyStatus.TextColor3 =
+        Colors.SubText
+
+    task.spawn(function()
+        local valid, result =
+            validateKey(
+                keyBox.Text
+            )
+
+        if not alive then
+            return
+        end
+
+        if valid then
             keyStatus.Text =
-                copied
-                and "access key link copied"
-                or KEY_FLOW
+                "key accepted"
 
             keyStatus.TextColor3 =
-                copied
-                and Colors.Accent
-                or Colors.Text
-        end)
-)
+                Colors.Accent
 
-track(
-    continueButton.MouseButton1Click:
-        Connect(function()
+            task.wait(0.2)
 
-            if keyBusy then
-                return
-            end
+            keyOverlay:Destroy()
 
-            keyBusy =
-                true
+            buildChooser()
+        else
+            keyStatus.Text =
+                tostring(
+                    result
+                )
+
+            keyStatus.TextColor3 =
+                Colors.Danger
 
             continueButton.Text =
-                "Checking..."
+                "Continue"
 
-            keyStatus.Text =
-                "checking key..."
-
-            keyStatus.TextColor3 =
-                Colors.SubText
-
-            task.spawn(function()
-                local valid, result =
-                    validateKey(
-                        keyBox.Text
-                    )
-
-                if not alive then
-                    return
-                end
-
-                if valid then
-                    keyStatus.Text =
-                        "key accepted"
-
-                    keyStatus.TextColor3 =
-                        Colors.Accent
-
-                    task.wait(0.2)
-
-                    keyOverlay:
-                        Destroy()
-
-                    buildChooser()
-                else
-                    keyStatus.Text =
-                        tostring(
-                            result
-                        )
-
-                    keyStatus.TextColor3 =
-                        Colors.Danger
-
-                    continueButton.Text =
-                        "Continue"
-
-                    keyBusy =
-                        false
-                end
-            end)
-        end)
-)
+            keyBusy =
+                false
+        end
+    end)
+end))
 
 buildChooser = function()
-    local overlay =
-        create(
-            "Frame",
-            {
-                Size =
-                    UDim2.fromScale(
-                        1,
-                        1
-                    ),
+    local overlay = create("Frame", {
+        Size =
+            UDim2.fromScale(
+                1,
+                1
+            ),
 
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        5,
-                        6,
-                        8
-                    ),
+        BackgroundColor3 =
+            Color3.fromRGB(
+                5,
+                6,
+                8
+            ),
 
-                BackgroundTransparency =
-                    0.22,
+        BackgroundTransparency =
+            0.22,
 
-                BorderSizePixel =
-                    0
-            },
-            gui
-        )
+        BorderSizePixel =
+            0
+    }, gui)
 
-    local panel =
-        create(
-            "Frame",
-            {
-                AnchorPoint =
-                    Vector2.new(
-                        0.5,
-                        0.5
-                    ),
+    local panel = create("Frame", {
+        AnchorPoint =
+            Vector2.new(
+                0.5,
+                0.5
+            ),
 
-                Position =
-                    UDim2.fromScale(
-                        0.5,
-                        0.5
-                    ),
+        Position =
+            UDim2.fromScale(
+                0.5,
+                0.5
+            ),
 
-                Size =
-                    UDim2.new(
-                        0.82,
-                        0,
-                        0,
-                        230
-                    ),
+        Size =
+            UDim2.new(
+                0.82,
+                0,
+                0,
+                230
+            ),
 
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        77,
-                        79,
-                        84
-                    ),
+        BackgroundColor3 =
+            Color3.fromRGB(
+                77,
+                79,
+                84
+            ),
 
-                BackgroundTransparency =
-                    0.22,
+        BackgroundTransparency =
+            0.22,
 
-                BorderSizePixel =
-                    0,
+        BorderSizePixel =
+            0,
 
-                Active =
-                    true
-            },
-            overlay
-        )
+        Active =
+            true
+    }, overlay)
 
-    create(
-        "UISizeConstraint",
-        {
-            MinSize =
-                Vector2.new(
-                    300,
-                    210
-                ),
+    create("UISizeConstraint", {
+        MinSize =
+            Vector2.new(
+                300,
+                210
+            ),
 
-            MaxSize =
-                Vector2.new(
-                    470,
-                    230
-                )
-        },
-        panel
-    )
+        MaxSize =
+            Vector2.new(
+                470,
+                230
+            )
+    }, panel)
 
     addCorner(
         panel,
@@ -3632,138 +2870,116 @@ buildChooser = function()
         panel
     )
 
-    create(
-        "TextLabel",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    20,
-                    0,
-                    20
-                ),
-
-            Size =
-                UDim2.new(
-                    1,
-                    -40,
-                    0,
-                    26
-                ),
-
-            BackgroundTransparency =
-                1,
-
-            Text =
-                "what are you on?",
-
-            TextColor3 =
-                Color3.fromRGB(
-                    245,
-                    245,
-                    247
-                ),
-
-            TextSize =
+    create("TextLabel", {
+        Position =
+            UDim2.new(
+                0,
                 20,
+                0,
+                20
+            ),
 
-            Font =
-                Enum.Font.GothamBold
-        },
-        panel
-    )
-
-    create(
-        "TextLabel",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    20,
-                    0,
-                    47
-                ),
-
-            Size =
-                UDim2.new(
-                    1,
-                    -40,
-                    0,
-                    20
-                ),
-
-            BackgroundTransparency =
+        Size =
+            UDim2.new(
                 1,
+                -40,
+                0,
+                26
+            ),
 
-            Text =
-                "pick pc or phone",
+        BackgroundTransparency =
+            1,
 
-            TextColor3 =
-                Color3.fromRGB(
-                    197,
-                    199,
-                    205
-                ),
+        Text =
+            "what are you on?",
 
-            TextSize =
-                13,
+        TextColor3 =
+            Color3.fromRGB(
+                245,
+                245,
+                247
+            ),
 
-            Font =
-                Enum.Font.Gotham
-        },
-        panel
-    )
+        TextSize =
+            20,
 
-    local pcButton =
-        create(
-            "TextButton",
-            {
-                Position =
-                    UDim2.new(
-                        0.05,
-                        0,
-                        0,
-                        85
-                    ),
+        Font =
+            Enum.Font.GothamBold
+    }, panel)
 
-                Size =
-                    UDim2.new(
-                        0.425,
-                        0,
-                        0,
-                        120
-                    ),
+    create("TextLabel", {
+        Position =
+            UDim2.new(
+                0,
+                20,
+                0,
+                47
+            ),
 
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        41,
-                        43,
-                        48
-                    ),
+        Size =
+            UDim2.new(
+                1,
+                -40,
+                0,
+                20
+            ),
 
-                BackgroundTransparency =
-                    0.16,
+        BackgroundTransparency =
+            1,
 
-                BorderSizePixel =
-                    0,
+        Text =
+            "pick pc or phone",
 
-                Text =
-                    "PC",
+        TextColor3 =
+            Color3.fromRGB(
+                197,
+                199,
+                205
+            ),
 
-                TextColor3 =
-                    Colors.Text,
+        TextSize =
+            13,
 
-                TextSize =
-                    16,
+        Font =
+            Enum.Font.Gotham
+    }, panel)
 
-                Font =
-                    Enum.Font.GothamBold,
+    local pcButton = create("TextButton", {
+        Position =
+            UDim2.new(
+                0.05,
+                0,
+                0,
+                85
+            ),
 
-                AutoButtonColor =
-                    false
-            },
-            panel
-        )
+        Size =
+            UDim2.new(
+                0.425,
+                0,
+                0,
+                120
+            ),
+
+        BackgroundColor3 =
+            Color3.fromRGB(
+                41,
+                43,
+                48
+            ),
+
+        BackgroundTransparency =
+            0.16,
+
+        BorderSizePixel =
+            0,
+
+        Text =
+            "",
+
+        AutoButtonColor =
+            false
+    }, panel)
 
     addCorner(
         pcButton,
@@ -3774,56 +2990,188 @@ buildChooser = function()
         pcButton
     )
 
-    local phoneButton =
-        create(
-            "TextButton",
-            {
-                Position =
-                    UDim2.new(
-                        0.525,
-                        0,
-                        0,
-                        85
-                    ),
+    local monitorScreen = create("Frame", {
+        AnchorPoint =
+            Vector2.new(
+                0.5,
+                0
+            ),
 
-                Size =
-                    UDim2.new(
-                        0.425,
-                        0,
-                        0,
-                        120
-                    ),
+        Position =
+            UDim2.new(
+                0.5,
+                0,
+                0,
+                16
+            ),
 
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        41,
-                        43,
-                        48
-                    ),
+        Size =
+            UDim2.fromOffset(
+                66,
+                43
+            ),
 
-                BackgroundTransparency =
-                    0.16,
+        BackgroundTransparency =
+            1,
 
-                BorderSizePixel =
-                    0,
+        BorderSizePixel =
+            0
+    }, pcButton)
 
-                Text =
-                    "PHONE",
+    addCorner(
+        monitorScreen,
+        6
+    )
 
-                TextColor3 =
-                    Colors.Text,
+    addStroke(
+        monitorScreen,
+        Color3.fromRGB(
+            235,
+            235,
+            238
+        ),
+        3,
+        0
+    )
 
-                TextSize =
-                    16,
+    local monitorStand = create("Frame", {
+        AnchorPoint =
+            Vector2.new(
+                0.5,
+                0
+            ),
 
-                Font =
-                    Enum.Font.GothamBold,
+        Position =
+            UDim2.new(
+                0.5,
+                0,
+                0,
+                60
+            ),
 
-                AutoButtonColor =
-                    false
-            },
-            panel
-        )
+        Size =
+            UDim2.fromOffset(
+                5,
+                13
+            ),
+
+        BackgroundColor3 =
+            Color3.fromRGB(
+                235,
+                235,
+                238
+            ),
+
+        BorderSizePixel =
+            0
+    }, pcButton)
+
+    local monitorBase = create("Frame", {
+        AnchorPoint =
+            Vector2.new(
+                0.5,
+                0
+            ),
+
+        Position =
+            UDim2.new(
+                0.5,
+                0,
+                0,
+                72
+            ),
+
+        Size =
+            UDim2.fromOffset(
+                31,
+                4
+            ),
+
+        BackgroundColor3 =
+            Color3.fromRGB(
+                235,
+                235,
+                238
+            ),
+
+        BorderSizePixel =
+            0
+    }, pcButton)
+
+    addCorner(
+        monitorBase,
+        2
+    )
+
+    create("TextLabel", {
+        Position =
+            UDim2.new(
+                0,
+                0,
+                1,
+                -35
+            ),
+
+        Size =
+            UDim2.new(
+                1,
+                0,
+                0,
+                22
+            ),
+
+        BackgroundTransparency =
+            1,
+
+        Text =
+            "PC",
+
+        TextColor3 =
+            Colors.Text,
+
+        TextSize =
+            15,
+
+        Font =
+            Enum.Font.GothamBold
+    }, pcButton)
+
+    local phoneButton = create("TextButton", {
+        Position =
+            UDim2.new(
+                0.525,
+                0,
+                0,
+                85
+            ),
+
+        Size =
+            UDim2.new(
+                0.425,
+                0,
+                0,
+                120
+            ),
+
+        BackgroundColor3 =
+            Color3.fromRGB(
+                41,
+                43,
+                48
+            ),
+
+        BackgroundTransparency =
+            0.16,
+
+        BorderSizePixel =
+            0,
+
+        Text =
+            "",
+
+        AutoButtonColor =
+            false
+    }, panel)
 
     addCorner(
         phoneButton,
@@ -3834,6 +3182,159 @@ buildChooser = function()
         phoneButton
     )
 
+    local phoneDrawing = create("Frame", {
+        AnchorPoint =
+            Vector2.new(
+                0.5,
+                0
+            ),
+
+        Position =
+            UDim2.new(
+                0.5,
+                0,
+                0,
+                13
+            ),
+
+        Size =
+            UDim2.fromOffset(
+                36,
+                60
+            ),
+
+        BackgroundTransparency =
+            1,
+
+        BorderSizePixel =
+            0
+    }, phoneButton)
+
+    addCorner(
+        phoneDrawing,
+        7
+    )
+
+    addStroke(
+        phoneDrawing,
+        Color3.fromRGB(
+            235,
+            235,
+            238
+        ),
+        3,
+        0
+    )
+
+    create("Frame", {
+        AnchorPoint =
+            Vector2.new(
+                0.5,
+                0
+            ),
+
+        Position =
+            UDim2.new(
+                0.5,
+                0,
+                0,
+                6
+            ),
+
+        Size =
+            UDim2.fromOffset(
+                11,
+                2
+            ),
+
+        BackgroundColor3 =
+            Color3.fromRGB(
+                235,
+                235,
+                238
+            ),
+
+        BorderSizePixel =
+            0
+    }, phoneDrawing)
+
+    local phoneHome = create("Frame", {
+        AnchorPoint =
+            Vector2.new(
+                0.5,
+                1
+            ),
+
+        Position =
+            UDim2.new(
+                0.5,
+                0,
+                1,
+                -5
+            ),
+
+        Size =
+            UDim2.fromOffset(
+                5,
+                5
+            ),
+
+        BackgroundTransparency =
+            1,
+
+        BorderSizePixel =
+            0
+    }, phoneDrawing)
+
+    addCorner(
+        phoneHome,
+        100
+    )
+
+    addStroke(
+        phoneHome,
+        Color3.fromRGB(
+            235,
+            235,
+            238
+        ),
+        1,
+        0
+    )
+
+    create("TextLabel", {
+        Position =
+            UDim2.new(
+                0,
+                0,
+                1,
+                -35
+            ),
+
+        Size =
+            UDim2.new(
+                1,
+                0,
+                0,
+                22
+            ),
+
+        BackgroundTransparency =
+            1,
+
+        Text =
+            "PHONE",
+
+        TextColor3 =
+            Colors.Text,
+
+        TextSize =
+            15,
+
+        Font =
+            Enum.Font.GothamBold
+    }, phoneButton)
+
     animateButton(
         pcButton
     )
@@ -3842,94 +3343,68 @@ buildChooser = function()
         phoneButton
     )
 
-    track(
-        pcButton.MouseButton1Click:
-            Connect(function()
+    track(pcButton.MouseButton1Click:Connect(function()
+        overlay:Destroy()
 
-                overlay:
-                    Destroy()
+        if blur then
+            blur:Destroy()
+            blur = nil
+        end
 
-                if blur then
-                    blur:
-                        Destroy()
+        buildMainMenu(
+            "PC"
+        )
+    end))
 
-                    blur =
-                        nil
-                end
+    track(phoneButton.MouseButton1Click:Connect(function()
+        overlay:Destroy()
 
-                buildMainMenu(
-                    "PC"
-                )
-            end)
-    )
+        if blur then
+            blur:Destroy()
+            blur = nil
+        end
 
-    track(
-        phoneButton.MouseButton1Click:
-            Connect(function()
-
-                overlay:
-                    Destroy()
-
-                if blur then
-                    blur:
-                        Destroy()
-
-                    blur =
-                        nil
-                end
-
-                buildMainMenu(
-                    "Phone"
-                )
-            end)
-    )
+        buildMainMenu(
+            "Phone"
+        )
+    end))
 end
 
-buildMainMenu = function(
-    deviceMode
-)
+buildMainMenu = function(deviceMode)
     local isPhone =
-        deviceMode
-        == "Phone"
+        deviceMode == "Phone"
 
     local compactHeight =
-        isPhone
-        and 34
-        or 42
+        isPhone and 34 or 42
 
-    local menu =
-        create(
-            "Frame",
-            {
-                AnchorPoint =
-                    Vector2.new(
-                        0.5,
-                        0.5
-                    ),
+    local menu = create("Frame", {
+        AnchorPoint =
+            Vector2.new(
+                0.5,
+                0.5
+            ),
 
-                Position =
-                    UDim2.fromScale(
-                        0.5,
-                        0.5
-                    ),
+        Position =
+            UDim2.fromScale(
+                0.5,
+                0.5
+            ),
 
-                BackgroundColor3 =
-                    Colors.Background,
+        BackgroundColor3 =
+            Colors.Background,
 
-                BackgroundTransparency =
-                    0.16,
+        BackgroundTransparency =
+            0.16,
 
-                BorderSizePixel =
-                    0,
+        BorderSizePixel =
+            0,
 
-                ClipsDescendants =
-                    true,
+        ClipsDescendants =
+            true,
 
-                Active =
-                    true
-            },
-            gui
-        )
+        Active =
+            true
+    }, gui)
 
     if isPhone then
         menu.Size =
@@ -3957,265 +3432,233 @@ buildMainMenu = function(
     )
 
     local headerHeight =
-        isPhone
-        and 50
-        or 58
+        isPhone and 50 or 58
 
-    local header =
-        create(
-            "Frame",
-            {
-                Size =
-                    UDim2.new(
-                        1,
-                        0,
-                        0,
-                        headerHeight
-                    ),
+    local header = create("Frame", {
+        Size =
+            UDim2.new(
+                1,
+                0,
+                0,
+                headerHeight
+            ),
 
-                BackgroundColor3 =
-                    Colors.Sidebar,
+        BackgroundColor3 =
+            Colors.Sidebar,
 
-                BackgroundTransparency =
-                    0.12,
+        BackgroundTransparency =
+            0.12,
 
-                BorderSizePixel =
-                    0,
+        BorderSizePixel =
+            0,
 
-                Active =
-                    true
-            },
-            menu
-        )
+        Active =
+            true
+    }, menu)
 
     makeDraggable(
         menu,
         header
     )
 
-    local headerIcon =
-        create(
-            "ImageLabel",
-            {
-                Position =
-                    UDim2.new(
-                        0,
-                        10,
-                        0.5,
-                        -18
-                    ),
+    local headerIcon = create("ImageLabel", {
+        Position =
+            UDim2.new(
+                0,
+                10,
+                0.5,
+                -18
+            ),
 
-                Size =
-                    UDim2.fromOffset(
-                        36,
-                        36
-                    ),
+        Size =
+            UDim2.fromOffset(
+                36,
+                36
+            ),
 
-                BackgroundColor3 =
-                    Colors.Control,
+        BackgroundColor3 =
+            Colors.Control,
 
-                BorderSizePixel =
-                    0,
+        BorderSizePixel =
+            0,
 
-                Image =
-                    MM2_ICON
-            },
-            header
-        )
+        Image =
+            MM2_ICON
+    }, header)
 
     addCorner(
         headerIcon,
         9
     )
 
-    create(
-        "TextLabel",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    57,
-                    0,
-                    8
-                ),
+    create("TextLabel", {
+        Position =
+            UDim2.new(
+                0,
+                57,
+                0,
+                8
+            ),
 
-            Size =
-                UDim2.new(
-                    0,
-                    150,
-                    0,
-                    20
-                ),
+        Size =
+            UDim2.new(
+                0,
+                150,
+                0,
+                20
+            ),
 
-            BackgroundTransparency =
+        BackgroundTransparency =
+            1,
+
+        Text =
+            "THH HUB",
+
+        TextColor3 =
+            Colors.Text,
+
+        TextSize =
+            isPhone and 16 or 18,
+
+        Font =
+            Enum.Font.GothamBold,
+
+        TextXAlignment =
+            Enum.TextXAlignment.Left
+    }, header)
+
+    create("TextLabel", {
+        Position =
+            UDim2.new(
+                0,
+                57,
+                0,
+                29
+            ),
+
+        Size =
+            UDim2.new(
+                0,
+                100,
+                0,
+                15
+            ),
+
+        BackgroundTransparency =
+            1,
+
+        Text =
+            "MM2",
+
+        TextColor3 =
+            Colors.SubText,
+
+        TextSize =
+            10,
+
+        Font =
+            Enum.Font.Gotham,
+
+        TextXAlignment =
+            Enum.TextXAlignment.Left
+    }, header)
+
+    local minimizeButton = create("TextButton", {
+        AnchorPoint =
+            Vector2.new(
                 1,
+                0.5
+            ),
 
-            Text =
-                "THH HUB",
-
-            TextColor3 =
-                Colors.Text,
-
-            TextSize =
-                isPhone
-                and 16
-                or 18,
-
-            Font =
-                Enum.Font.GothamBold,
-
-            TextXAlignment =
-                Enum.TextXAlignment.Left
-        },
-        header
-    )
-
-    create(
-        "TextLabel",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    57,
-                    0,
-                    29
-                ),
-
-            Size =
-                UDim2.new(
-                    0,
-                    100,
-                    0,
-                    15
-                ),
-
-            BackgroundTransparency =
+        Position =
+            UDim2.new(
                 1,
+                -44,
+                0.5,
+                0
+            ),
 
-            Text =
-                "MM2",
+        Size =
+            UDim2.fromOffset(
+                28,
+                28
+            ),
 
-            TextColor3 =
-                Colors.SubText,
+        BackgroundColor3 =
+            Colors.Control,
 
-            TextSize =
-                10,
+        BackgroundTransparency =
+            0.08,
 
-            Font =
-                Enum.Font.Gotham,
+        BorderSizePixel =
+            0,
 
-            TextXAlignment =
-                Enum.TextXAlignment.Left
-        },
-        header
-    )
+        Text =
+            "—",
 
-    local minimizeButton =
-        create(
-            "TextButton",
-            {
-                AnchorPoint =
-                    Vector2.new(
-                        1,
-                        0.5
-                    ),
+        TextColor3 =
+            Colors.Text,
 
-                Position =
-                    UDim2.new(
-                        1,
-                        -44,
-                        0.5,
-                        0
-                    ),
+        TextSize =
+            16,
 
-                Size =
-                    UDim2.fromOffset(
-                        28,
-                        28
-                    ),
+        Font =
+            Enum.Font.GothamBold,
 
-                BackgroundColor3 =
-                    Colors.Control,
-
-                BackgroundTransparency =
-                    0.08,
-
-                BorderSizePixel =
-                    0,
-
-                Text =
-                    "—",
-
-                TextColor3 =
-                    Colors.Text,
-
-                TextSize =
-                    16,
-
-                Font =
-                    Enum.Font.GothamBold,
-
-                AutoButtonColor =
-                    false
-            },
-            header
-        )
+        AutoButtonColor =
+            false
+    }, header)
 
     addCorner(
         minimizeButton,
         8
     )
 
-    local closeButton =
-        create(
-            "TextButton",
-            {
-                AnchorPoint =
-                    Vector2.new(
-                        1,
-                        0.5
-                    ),
+    local closeButton = create("TextButton", {
+        AnchorPoint =
+            Vector2.new(
+                1,
+                0.5
+            ),
 
-                Position =
-                    UDim2.new(
-                        1,
-                        -9,
-                        0.5,
-                        0
-                    ),
+        Position =
+            UDim2.new(
+                1,
+                -9,
+                0.5,
+                0
+            ),
 
-                Size =
-                    UDim2.fromOffset(
-                        28,
-                        28
-                    ),
+        Size =
+            UDim2.fromOffset(
+                28,
+                28
+            ),
 
-                BackgroundColor3 =
-                    Colors.Control,
+        BackgroundColor3 =
+            Colors.Control,
 
-                BackgroundTransparency =
-                    0.08,
+        BackgroundTransparency =
+            0.08,
 
-                BorderSizePixel =
-                    0,
+        BorderSizePixel =
+            0,
 
-                Text =
-                    "×",
+        Text =
+            "×",
 
-                TextColor3 =
-                    Colors.Danger,
+        TextColor3 =
+            Colors.Danger,
 
-                TextSize =
-                    19,
+        TextSize =
+            19,
 
-                Font =
-                    Enum.Font.Gotham,
+        Font =
+            Enum.Font.Gotham,
 
-                AutoButtonColor =
-                    false
-            },
-            header
-        )
+        AutoButtonColor =
+            false
+    }, header)
 
     addCorner(
         closeButton,
@@ -4226,314 +3669,247 @@ buildMainMenu = function(
     local pagesHolder
 
     if isPhone then
-        navHolder =
-            create(
-                "Frame",
-                {
-                    Position =
-                        UDim2.new(
-                            0,
-                            7,
-                            0,
-                            headerHeight
-                            + 5
-                        ),
+        navHolder = create("Frame", {
+            Position =
+                UDim2.new(
+                    0,
+                    7,
+                    0,
+                    headerHeight + 5
+                ),
 
-                    Size =
-                        UDim2.new(
-                            1,
-                            -14,
-                            0,
-                            67
-                        ),
+            Size =
+                UDim2.new(
+                    1,
+                    -14,
+                    0,
+                    67
+                ),
 
-                    BackgroundTransparency =
-                        1
-                },
-                menu
-            )
+            BackgroundTransparency =
+                1
+        }, menu)
 
-        create(
-            "UIGridLayout",
-            {
-                CellSize =
-                    UDim2.new(
-                        0.24,
-                        -3,
-                        0,
-                        29
-                    ),
+        create("UIGridLayout", {
+            CellSize =
+                UDim2.new(
+                    0.24,
+                    -3,
+                    0,
+                    29
+                ),
 
-                CellPadding =
-                    UDim2.fromOffset(
-                        5,
-                        5
-                    ),
+            CellPadding =
+                UDim2.fromOffset(
+                    5,
+                    5
+                ),
 
-                FillDirectionMaxCells =
-                    4,
+            FillDirectionMaxCells =
+                4,
 
-                SortOrder =
-                    Enum.SortOrder.LayoutOrder
-            },
-            navHolder
-        )
+            SortOrder =
+                Enum.SortOrder.LayoutOrder
+        }, navHolder)
 
-        pagesHolder =
-            create(
-                "Frame",
-                {
-                    Position =
-                        UDim2.new(
-                            0,
-                            7,
-                            0,
-                            headerHeight
-                            + 77
-                        ),
+        pagesHolder = create("Frame", {
+            Position =
+                UDim2.new(
+                    0,
+                    7,
+                    0,
+                    headerHeight + 77
+                ),
 
-                    Size =
-                        UDim2.new(
-                            1,
-                            -14,
-                            1,
-                            -(
-                                headerHeight
-                                + 84
-                            )
-                        ),
+            Size =
+                UDim2.new(
+                    1,
+                    -14,
+                    1,
+                    -(headerHeight + 84)
+                ),
 
-                    BackgroundTransparency =
-                        1,
+            BackgroundTransparency =
+                1,
 
-                    ClipsDescendants =
-                        true
-                },
-                menu
-            )
+            ClipsDescendants =
+                true
+        }, menu)
     else
-        navHolder =
-            create(
-                "Frame",
-                {
-                    Position =
-                        UDim2.new(
-                            0,
-                            0,
-                            0,
-                            headerHeight
-                        ),
+        navHolder = create("Frame", {
+            Position =
+                UDim2.new(
+                    0,
+                    0,
+                    0,
+                    headerHeight
+                ),
 
-                    Size =
-                        UDim2.new(
-                            0,
-                            155,
-                            1,
-                            -headerHeight
-                        ),
+            Size =
+                UDim2.new(
+                    0,
+                    155,
+                    1,
+                    -headerHeight
+                ),
 
-                    BackgroundColor3 =
-                        Colors.Sidebar,
+            BackgroundColor3 =
+                Colors.Sidebar,
 
-                    BackgroundTransparency =
-                        0.12,
+            BackgroundTransparency =
+                0.12,
 
-                    BorderSizePixel =
-                        0
-                },
-                menu
-            )
+            BorderSizePixel =
+                0
+        }, menu)
 
-        create(
-            "UIListLayout",
-            {
-                Padding =
-                    UDim.new(
-                        0,
-                        6
-                    ),
+        create("UIListLayout", {
+            Padding =
+                UDim.new(
+                    0,
+                    6
+                ),
 
-                HorizontalAlignment =
-                    Enum.HorizontalAlignment.Center,
+            HorizontalAlignment =
+                Enum.HorizontalAlignment.Center,
 
-                SortOrder =
-                    Enum.SortOrder.LayoutOrder
-            },
-            navHolder
-        )
+            SortOrder =
+                Enum.SortOrder.LayoutOrder
+        }, navHolder)
 
-        create(
-            "UIPadding",
-            {
-                PaddingTop =
-                    UDim.new(
-                        0,
-                        10
-                    )
-            },
-            navHolder
-        )
+        create("UIPadding", {
+            PaddingTop =
+                UDim.new(
+                    0,
+                    10
+                )
+        }, navHolder)
 
-        pagesHolder =
-            create(
-                "Frame",
-                {
-                    Position =
-                        UDim2.new(
-                            0,
-                            155,
-                            0,
-                            headerHeight
-                        ),
+        pagesHolder = create("Frame", {
+            Position =
+                UDim2.new(
+                    0,
+                    155,
+                    0,
+                    headerHeight
+                ),
 
-                    Size =
-                        UDim2.new(
-                            1,
-                            -155,
-                            1,
-                            -headerHeight
-                        ),
+            Size =
+                UDim2.new(
+                    1,
+                    -155,
+                    1,
+                    -headerHeight
+                ),
 
-                    BackgroundTransparency =
-                        1,
+            BackgroundTransparency =
+                1,
 
-                    ClipsDescendants =
-                        true
-                },
-                menu
-            )
+            ClipsDescendants =
+                true
+        }, menu)
     end
 
     local pages = {}
     local navButtons = {}
     local navOrder = 0
 
-    local function createPage(
-        name
-    )
+    local function createPage(name)
         local page
 
         if isPhone then
-            page =
-                create(
-                    "Frame",
-                    {
-                        Name =
-                            name
-                            .. "Page",
+            page = create("Frame", {
+                Name =
+                    name .. "Page",
 
-                        Size =
-                            UDim2.fromScale(
-                                1,
-                                1
-                            ),
+                Size =
+                    UDim2.fromScale(
+                        1,
+                        1
+                    ),
 
-                        BackgroundTransparency =
-                            1,
+                BackgroundTransparency =
+                    1,
 
-                        Visible =
-                            false,
+                Visible =
+                    false,
 
-                        ClipsDescendants =
-                            true
-                    },
-                    pagesHolder
-                )
+                ClipsDescendants =
+                    true
+            }, pagesHolder)
         else
-            page =
-                create(
-                    "ScrollingFrame",
-                    {
-                        Name =
-                            name
-                            .. "Page",
+            page = create("ScrollingFrame", {
+                Name =
+                    name .. "Page",
 
-                        Size =
-                            UDim2.fromScale(
-                                1,
-                                1
-                            ),
+                Size =
+                    UDim2.fromScale(
+                        1,
+                        1
+                    ),
 
-                        BackgroundTransparency =
-                            1,
+                BackgroundTransparency =
+                    1,
 
-                        BorderSizePixel =
-                            0,
+                BorderSizePixel =
+                    0,
 
-                        Visible =
-                            false,
+                Visible =
+                    false,
 
-                        CanvasSize =
-                            UDim2.fromOffset(
-                                0,
-                                0
-                            ),
+                CanvasSize =
+                    UDim2.fromOffset(
+                        0,
+                        0
+                    ),
 
-                        AutomaticCanvasSize =
-                            Enum.AutomaticSize.Y,
+                AutomaticCanvasSize =
+                    Enum.AutomaticSize.Y,
 
-                        ScrollBarThickness =
-                            3,
+                ScrollBarThickness =
+                    3,
 
-                        ScrollBarImageColor3 =
-                            Colors.Accent
-                    },
-                    pagesHolder
-                )
+                ScrollBarImageColor3 =
+                    Colors.Accent
+            }, pagesHolder)
         end
 
-        create(
-            "UIListLayout",
-            {
-                Padding =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 6
-                        or 9
-                    ),
+        create("UIListLayout", {
+            Padding =
+                UDim.new(
+                    0,
+                    isPhone and 6 or 9
+                ),
 
-                SortOrder =
-                    Enum.SortOrder.LayoutOrder
-            },
-            page
-        )
+            SortOrder =
+                Enum.SortOrder.LayoutOrder
+        }, page)
 
-        create(
-            "UIPadding",
-            {
-                PaddingLeft =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 4
-                        or 13
-                    ),
+        create("UIPadding", {
+            PaddingLeft =
+                UDim.new(
+                    0,
+                    isPhone and 4 or 13
+                ),
 
-                PaddingRight =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 4
-                        or 13
-                    ),
+            PaddingRight =
+                UDim.new(
+                    0,
+                    isPhone and 4 or 13
+                ),
 
-                PaddingTop =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 4
-                        or 13
-                    ),
+            PaddingTop =
+                UDim.new(
+                    0,
+                    isPhone and 4 or 13
+                ),
 
-                PaddingBottom =
-                    UDim.new(
-                        0,
-                        10
-                    )
-            },
-            page
-        )
+            PaddingBottom =
+                UDim.new(
+                    0,
+                    10
+                )
+        }, page)
 
         pages[name] =
             page
@@ -4541,27 +3917,14 @@ buildMainMenu = function(
         return page
     end
 
-    local function showPage(
-        name
-    )
-        for pageName, page
-            in pairs(
-                pages
-            ) do
-
+    local function showPage(name)
+        for pageName, page in pairs(pages) do
             page.Visible =
-                pageName
-                == name
+                pageName == name
         end
 
-        for buttonName, button
-            in pairs(
-                navButtons
-            ) do
-
-            if buttonName
-                == name then
-
+        for buttonName, button in pairs(navButtons) do
+            if buttonName == name then
                 button.BackgroundColor3 =
                     Colors.AccentDark
 
@@ -4577,58 +3940,48 @@ buildMainMenu = function(
         end
     end
 
-    local function createNav(
-        name
-    )
-        navOrder +=
-            1
+    local function createNav(name)
+        navOrder += 1
 
-        local button =
-            create(
-                "TextButton",
-                {
-                    LayoutOrder =
-                        navOrder,
+        local button = create("TextButton", {
+            LayoutOrder =
+                navOrder,
 
-                    Size =
-                        isPhone
-                        and UDim2.fromScale(
-                            1,
-                            1
-                        )
-                        or UDim2.fromOffset(
-                            132,
-                            38
-                        ),
+            Size =
+                isPhone
+                and UDim2.fromScale(
+                    1,
+                    1
+                )
+                or UDim2.fromOffset(
+                    132,
+                    38
+                ),
 
-                    BackgroundColor3 =
-                        Colors.Control,
+            BackgroundColor3 =
+                Colors.Control,
 
-                    BackgroundTransparency =
-                        0.08,
+            BackgroundTransparency =
+                0.08,
 
-                    BorderSizePixel =
-                        0,
+            BorderSizePixel =
+                0,
 
-                    Text =
-                        name,
+            Text =
+                name,
 
-                    TextColor3 =
-                        Colors.SubText,
+            TextColor3 =
+                Colors.SubText,
 
-                    TextSize =
-                        isPhone
-                        and 9
-                        or 11,
+            TextSize =
+                isPhone and 9 or 11,
 
-                    Font =
-                        Enum.Font.GothamMedium,
+            Font =
+                Enum.Font.GothamMedium,
 
-                    AutoButtonColor =
-                        false
-                },
-                navHolder
-            )
+            AutoButtonColor =
+                false
+        }, navHolder)
 
         addCorner(
             button,
@@ -4638,47 +3991,35 @@ buildMainMenu = function(
         navButtons[name] =
             button
 
-        track(
-            button.MouseButton1Click:
-                Connect(function()
-
-                    showPage(
-                        name
-                    )
-                end)
-        )
+        track(button.MouseButton1Click:Connect(function()
+            showPage(
+                name
+            )
+        end))
     end
 
-    local function section(
-        page,
-        title
-    )
-        local card =
-            create(
-                "Frame",
-                {
-                    Size =
-                        UDim2.new(
-                            1,
-                            0,
-                            0,
-                            0
-                        ),
+    local function section(page, title)
+        local card = create("Frame", {
+            Size =
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    0
+                ),
 
-                    AutomaticSize =
-                        Enum.AutomaticSize.Y,
+            AutomaticSize =
+                Enum.AutomaticSize.Y,
 
-                    BackgroundColor3 =
-                        Colors.Card,
+            BackgroundColor3 =
+                Colors.Card,
 
-                    BackgroundTransparency =
-                        0.2,
+            BackgroundTransparency =
+                0.2,
 
-                    BorderSizePixel =
-                        0
-                },
-                page
-            )
+            BorderSizePixel =
+                0
+        }, page)
 
         addCorner(
             card,
@@ -4689,114 +4030,83 @@ buildMainMenu = function(
             card
         )
 
-        local holder =
-            create(
-                "Frame",
-                {
-                    Size =
-                        UDim2.new(
-                            1,
-                            0,
-                            0,
-                            0
-                        ),
-
-                    AutomaticSize =
-                        Enum.AutomaticSize.Y,
-
-                    BackgroundTransparency =
-                        1
-                },
-                card
-            )
-
-        create(
-            "UIListLayout",
-            {
-                Padding =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 5
-                        or 8
-                    )
-            },
-            holder
-        )
-
-        create(
-            "UIPadding",
-            {
-                PaddingLeft =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 8
-                        or 12
-                    ),
-
-                PaddingRight =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 8
-                        or 12
-                    ),
-
-                PaddingTop =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 7
-                        or 12
-                    ),
-
-                PaddingBottom =
-                    UDim.new(
-                        0,
-                        isPhone
-                        and 7
-                        or 12
-                    )
-            },
-            holder
-        )
-
-        create(
-            "TextLabel",
-            {
-                Size =
-                    UDim2.new(
-                        1,
-                        0,
-                        0,
-                        isPhone
-                        and 18
-                        or 22
-                    ),
-
-                BackgroundTransparency =
+        local holder = create("Frame", {
+            Size =
+                UDim2.new(
                     1,
+                    0,
+                    0,
+                    0
+                ),
 
-                Text =
-                    title,
+            AutomaticSize =
+                Enum.AutomaticSize.Y,
 
-                TextColor3 =
-                    Colors.Text,
+            BackgroundTransparency =
+                1
+        }, card)
 
-                TextSize =
-                    isPhone
-                    and 12
-                    or 14,
+        create("UIListLayout", {
+            Padding =
+                UDim.new(
+                    0,
+                    isPhone and 5 or 8
+                )
+        }, holder)
 
-                Font =
-                    Enum.Font.GothamBold,
+        create("UIPadding", {
+            PaddingLeft =
+                UDim.new(
+                    0,
+                    isPhone and 8 or 12
+                ),
 
-                TextXAlignment =
-                    Enum.TextXAlignment.Left
-            },
-            holder
-        )
+            PaddingRight =
+                UDim.new(
+                    0,
+                    isPhone and 8 or 12
+                ),
+
+            PaddingTop =
+                UDim.new(
+                    0,
+                    isPhone and 7 or 12
+                ),
+
+            PaddingBottom =
+                UDim.new(
+                    0,
+                    isPhone and 7 or 12
+                )
+        }, holder)
+
+        create("TextLabel", {
+            Size =
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    isPhone and 18 or 22
+                ),
+
+            BackgroundTransparency =
+                1,
+
+            Text =
+                title,
+
+            TextColor3 =
+                Colors.Text,
+
+            TextSize =
+                isPhone and 12 or 14,
+
+            Font =
+                Enum.Font.GothamBold,
+
+            TextXAlignment =
+                Enum.TextXAlignment.Left
+        }, holder)
 
         return holder
     end
@@ -4808,125 +4118,103 @@ buildMainMenu = function(
         callback
     )
         local state =
-            default
-            == true
+            default == true
 
-        local row =
-            create(
-                "TextButton",
-                {
-                    Size =
-                        UDim2.new(
-                            1,
-                            0,
-                            0,
-                            compactHeight
-                        ),
+        local row = create("TextButton", {
+            Size =
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    compactHeight
+                ),
 
-                    BackgroundColor3 =
-                        Colors.Control,
+            BackgroundColor3 =
+                Colors.Control,
 
-                    BackgroundTransparency =
-                        0.08,
+            BackgroundTransparency =
+                0.08,
 
-                    BorderSizePixel =
-                        0,
+            BorderSizePixel =
+                0,
 
-                    Text =
-                        "",
+            Text =
+                "",
 
-                    AutoButtonColor =
-                        false
-                },
-                parent
-            )
+            AutoButtonColor =
+                false
+        }, parent)
 
         addCorner(
             row,
             8
         )
 
-        create(
-            "TextLabel",
-            {
-                Position =
-                    UDim2.new(
-                        0,
-                        10,
-                        0,
-                        0
-                    ),
+        create("TextLabel", {
+            Position =
+                UDim2.new(
+                    0,
+                    10,
+                    0,
+                    0
+                ),
 
-                Size =
-                    UDim2.new(
-                        1,
-                        -65,
-                        1,
-                        0
-                    ),
-
-                BackgroundTransparency =
+            Size =
+                UDim2.new(
                     1,
+                    -65,
+                    1,
+                    0
+                ),
 
-                Text =
-                    title,
+            BackgroundTransparency =
+                1,
 
-                TextColor3 =
-                    Colors.Text,
+            Text =
+                title,
 
-                TextSize =
-                    isPhone
-                    and 10
-                    or 12,
+            TextColor3 =
+                Colors.Text,
 
-                Font =
-                    Enum.Font.GothamMedium,
+            TextSize =
+                isPhone and 10 or 12,
 
-                TextXAlignment =
-                    Enum.TextXAlignment.Left
-            },
-            row
-        )
+            Font =
+                Enum.Font.GothamMedium,
 
-        local switch =
-            create(
-                "Frame",
-                {
-                    AnchorPoint =
-                        Vector2.new(
-                            1,
-                            0.5
-                        ),
+            TextXAlignment =
+                Enum.TextXAlignment.Left
+        }, row)
 
-                    Position =
-                        UDim2.new(
-                            1,
-                            -8,
-                            0.5,
-                            0
-                        ),
+        local switch = create("Frame", {
+            AnchorPoint =
+                Vector2.new(
+                    1,
+                    0.5
+                ),
 
-                    Size =
-                        UDim2.fromOffset(
-                            isPhone
-                            and 36
-                            or 39,
+            Position =
+                UDim2.new(
+                    1,
+                    -8,
+                    0.5,
+                    0
+                ),
 
-                            isPhone
-                            and 19
-                            or 21
-                        ),
+            Size =
+                UDim2.fromOffset(
+                    isPhone and 36 or 39,
+                    isPhone and 19 or 21
+                ),
 
-                    BackgroundColor3 =
-                        state
-                        and Colors.AccentDark
-                        or Colors.Stroke,
+            BackgroundColor3 =
+                state
+                and Colors.AccentDark
+                or Colors.Stroke,
 
-                    BorderSizePixel =
-                        0
-                },
-                row
-            )
+            BorderSizePixel =
+                0
+        }, row)
 
         addCorner(
             switch,
@@ -4934,36 +4222,29 @@ buildMainMenu = function(
         )
 
         local dotSize =
-            isPhone
-            and 13
-            or 15
+            isPhone and 13 or 15
 
-        local dot =
-            create(
-                "Frame",
-                {
-                    AnchorPoint =
-                        Vector2.new(
-                            0.5,
-                            0.5
-                        ),
+        local dot = create("Frame", {
+            AnchorPoint =
+                Vector2.new(
+                    0.5,
+                    0.5
+                ),
 
-                    Size =
-                        UDim2.fromOffset(
-                            dotSize,
-                            dotSize
-                        ),
+            Size =
+                UDim2.fromOffset(
+                    dotSize,
+                    dotSize
+                ),
 
-                    BackgroundColor3 =
-                        state
-                        and Colors.Accent
-                        or Colors.SubText,
+            BackgroundColor3 =
+                state
+                and Colors.Accent
+                or Colors.SubText,
 
-                    BorderSizePixel =
-                        0
-                },
-                switch
-            )
+            BorderSizePixel =
+                0
+        }, switch)
 
         addCorner(
             dot,
@@ -4985,27 +4266,19 @@ buildMainMenu = function(
                 state
                 and UDim2.new(
                     1,
-                    -(
-                        dotSize
-                        / 2
-                        + 3
-                    ),
+                    -(dotSize / 2 + 3),
                     0.5,
                     0
                 )
                 or UDim2.new(
                     0,
-                    dotSize
-                    / 2
-                    + 3,
+                    dotSize / 2 + 3,
                     0.5,
                     0
                 )
         end
 
-        local function setState(
-            value
-        )
+        local function setState(value)
             state =
                 value
 
@@ -5018,15 +4291,11 @@ buildMainMenu = function(
             end
         end
 
-        track(
-            row.MouseButton1Click:
-                Connect(function()
-
-                    setState(
-                        not state
-                    )
-                end)
-        )
+        track(row.MouseButton1Click:Connect(function()
+            setState(
+                not state
+            )
+        end))
 
         refresh()
 
@@ -5037,10 +4306,7 @@ buildMainMenu = function(
                 end,
 
             Set =
-                function(
-                    _,
-                    value
-                )
+                function(_, value)
                     setState(
                         value
                     )
@@ -5054,54 +4320,47 @@ buildMainMenu = function(
         callback,
         danger
     )
-        local button =
-            create(
-                "TextButton",
-                {
-                    Size =
-                        UDim2.new(
-                            1,
-                            0,
-                            0,
-                            compactHeight
-                        ),
+        local button = create("TextButton", {
+            Size =
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    compactHeight
+                ),
 
-                    BackgroundColor3 =
-                        danger
-                        and Color3.fromRGB(
-                            77,
-                            37,
-                            40
-                        )
-                        or Colors.Control,
+            BackgroundColor3 =
+                danger
+                and Color3.fromRGB(
+                    77,
+                    37,
+                    40
+                )
+                or Colors.Control,
 
-                    BackgroundTransparency =
-                        0.08,
+            BackgroundTransparency =
+                0.08,
 
-                    BorderSizePixel =
-                        0,
+            BorderSizePixel =
+                0,
 
-                    Text =
-                        title,
+            Text =
+                title,
 
-                    TextColor3 =
-                        danger
-                        and Colors.Danger
-                        or Colors.Text,
+            TextColor3 =
+                danger
+                and Colors.Danger
+                or Colors.Text,
 
-                    TextSize =
-                        isPhone
-                        and 10
-                        or 12,
+            TextSize =
+                isPhone and 10 or 12,
 
-                    Font =
-                        Enum.Font.GothamMedium,
+            Font =
+                Enum.Font.GothamMedium,
 
-                    AutoButtonColor =
-                        false
-                },
-                parent
-            )
+            AutoButtonColor =
+                false
+        }, parent)
 
         addCorner(
             button,
@@ -5112,15 +4371,11 @@ buildMainMenu = function(
             button
         )
 
-        track(
-            button.MouseButton1Click:
-                Connect(function()
-
-                    if callback then
-                        callback()
-                    end
-                end)
-        )
+        track(button.MouseButton1Click:Connect(function()
+            if callback then
+                callback()
+            end
+        end))
 
         return button
     end
@@ -5140,178 +4395,144 @@ buildMainMenu = function(
                 maximum
             )
 
-        local holder =
-            create(
-                "Frame",
-                {
-                    Size =
-                        UDim2.new(
-                            1,
-                            0,
-                            0,
-                            isPhone
-                            and 44
-                            or 60
-                        ),
+        local holder = create("Frame", {
+            Size =
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    isPhone and 44 or 60
+                ),
 
-                    BackgroundColor3 =
-                        Colors.Control,
+            BackgroundColor3 =
+                Colors.Control,
 
-                    BackgroundTransparency =
-                        0.08,
+            BackgroundTransparency =
+                0.08,
 
-                    BorderSizePixel =
-                        0
-                },
-                parent
-            )
+            BorderSizePixel =
+                0
+        }, parent)
 
         addCorner(
             holder,
             8
         )
 
-        create(
-            "TextLabel",
-            {
-                Position =
-                    UDim2.new(
-                        0,
-                        10,
-                        0,
-                        4
-                    ),
+        create("TextLabel", {
+            Position =
+                UDim2.new(
+                    0,
+                    10,
+                    0,
+                    4
+                ),
 
-                Size =
-                    UDim2.new(
-                        1,
-                        -75,
-                        0,
-                        18
-                    ),
-
-                BackgroundTransparency =
+            Size =
+                UDim2.new(
                     1,
+                    -75,
+                    0,
+                    18
+                ),
 
-                Text =
-                    title,
+            BackgroundTransparency =
+                1,
 
-                TextColor3 =
-                    Colors.Text,
+            Text =
+                title,
 
-                TextSize =
-                    isPhone
-                    and 9
-                    or 11,
+            TextColor3 =
+                Colors.Text,
 
-                Font =
-                    Enum.Font.GothamMedium,
+            TextSize =
+                isPhone and 9 or 11,
 
-                TextXAlignment =
-                    Enum.TextXAlignment.Left
-            },
-            holder
-        )
+            Font =
+                Enum.Font.GothamMedium,
 
-        local valueLabel =
-            create(
-                "TextLabel",
-                {
-                    AnchorPoint =
-                        Vector2.new(
-                            1,
-                            0
-                        ),
+            TextXAlignment =
+                Enum.TextXAlignment.Left
+        }, holder)
 
-                    Position =
-                        UDim2.new(
-                            1,
-                            -10,
-                            0,
-                            4
-                        ),
+        local valueLabel = create("TextLabel", {
+            AnchorPoint =
+                Vector2.new(
+                    1,
+                    0
+                ),
 
-                    Size =
-                        UDim2.fromOffset(
-                            60,
-                            18
-                        ),
+            Position =
+                UDim2.new(
+                    1,
+                    -10,
+                    0,
+                    4
+                ),
 
-                    BackgroundTransparency =
-                        1,
+            Size =
+                UDim2.fromOffset(
+                    60,
+                    18
+                ),
 
-                    Text =
-                        tostring(
-                            value
-                        ),
+            BackgroundTransparency =
+                1,
 
-                    TextColor3 =
-                        Colors.Accent,
+            Text =
+                tostring(
+                    value
+                ),
 
-                    TextSize =
-                        isPhone
-                        and 9
-                        or 11,
+            TextColor3 =
+                Colors.Accent,
 
-                    Font =
-                        Enum.Font.GothamBold,
+            TextSize =
+                isPhone and 9 or 11,
 
-                    TextXAlignment =
-                        Enum.TextXAlignment.Right
-                },
-                holder
-            )
+            Font =
+                Enum.Font.GothamBold,
 
-        local bar =
-            create(
-                "Frame",
-                {
-                    Position =
-                        UDim2.new(
-                            0,
-                            10,
-                            1,
-                            isPhone
-                            and -13
-                            or -17
-                        ),
+            TextXAlignment =
+                Enum.TextXAlignment.Right
+        }, holder)
 
-                    Size =
-                        UDim2.new(
-                            1,
-                            -20,
-                            0,
-                            isPhone
-                            and 5
-                            or 7
-                        ),
+        local bar = create("Frame", {
+            Position =
+                UDim2.new(
+                    0,
+                    10,
+                    1,
+                    isPhone and -13 or -17
+                ),
 
-                    BackgroundColor3 =
-                        Colors.Stroke,
+            Size =
+                UDim2.new(
+                    1,
+                    -20,
+                    0,
+                    isPhone and 5 or 7
+                ),
 
-                    BorderSizePixel =
-                        0
-                },
-                holder
-            )
+            BackgroundColor3 =
+                Colors.Stroke,
+
+            BorderSizePixel =
+                0
+        }, holder)
 
         addCorner(
             bar,
             100
         )
 
-        local fill =
-            create(
-                "Frame",
-                {
-                    BackgroundColor3 =
-                        Colors.Accent,
+        local fill = create("Frame", {
+            BackgroundColor3 =
+                Colors.Accent,
 
-                    BorderSizePixel =
-                        0
-                },
-                bar
-            )
+            BorderSizePixel =
+                0
+        }, bar)
 
         addCorner(
             fill,
@@ -5332,12 +4553,9 @@ buildMainMenu = function(
                 1
             )
 
-        local dragging =
-            false
+        local dragging = false
 
-        local function updateFromX(
-            x
-        )
+        local function updateFromX(x)
             local percent =
                 math.clamp(
                     (
@@ -5393,94 +4611,47 @@ buildMainMenu = function(
             end
         end
 
-        track(
-            bar.InputBegan:
-                Connect(function(input)
+        track(bar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
 
-                    if input.UserInputType
-                            == Enum.UserInputType.MouseButton1
-                        or input.UserInputType
-                            == Enum.UserInputType.Touch then
+                dragging = true
 
-                        dragging =
-                            true
+                updateFromX(
+                    input.Position.X
+                )
+            end
+        end))
 
-                        updateFromX(
-                            input.Position.X
-                        )
-                    end
-                end)
-        )
+        track(UserInputService.InputChanged:Connect(function(input)
+            if dragging
+                and (
+                    input.UserInputType == Enum.UserInputType.MouseMovement
+                    or input.UserInputType == Enum.UserInputType.Touch
+                ) then
 
-        track(
-            UserInputService.InputChanged:
-                Connect(function(input)
+                updateFromX(
+                    input.Position.X
+                )
+            end
+        end))
 
-                    if dragging
-                        and (
-                            input.UserInputType
-                                == Enum.UserInputType.MouseMovement
-                            or input.UserInputType
-                                == Enum.UserInputType.Touch
-                        ) then
+        track(UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
 
-                        updateFromX(
-                            input.Position.X
-                        )
-                    end
-                end)
-        )
-
-        track(
-            UserInputService.InputEnded:
-                Connect(function(input)
-
-                    if input.UserInputType
-                            == Enum.UserInputType.MouseButton1
-                        or input.UserInputType
-                            == Enum.UserInputType.Touch then
-
-                        dragging =
-                            false
-                    end
-                end)
-        )
+                dragging = false
+            end
+        end))
     end
 
-    local Home =
-        createPage(
-            "Home"
-        )
-
-    local SheriffPage =
-        createPage(
-            "Sheriff"
-        )
-
-    local MurdererPage =
-        createPage(
-            "Murderer"
-        )
-
-    local InnocentPage =
-        createPage(
-            "Innocent"
-        )
-
-    local CoinPage =
-        createPage(
-            "Coin Grab"
-        )
-
-    local UpdatesPage =
-        createPage(
-            "Updates"
-        )
-
-    local UtilityPage =
-        createPage(
-            "Utility"
-        )
+    local Home = createPage("Home")
+    local SheriffPage = createPage("Sheriff")
+    local MurdererPage = createPage("Murderer")
+    local InnocentPage = createPage("Innocent")
+    local CoinPage = createPage("Coin Grab")
+    local UpdatesPage = createPage("Updates")
+    local UtilityPage = createPage("Utility")
 
     createNav("Home")
     createNav("Sheriff")
@@ -5496,42 +4667,34 @@ buildMainMenu = function(
             "THH HUB"
         )
 
-    create(
-        "TextLabel",
-        {
-            Size =
-                UDim2.new(
-                    1,
-                    0,
-                    0,
-                    isPhone
-                    and 20
-                    or 25
-                ),
-
-            BackgroundTransparency =
+    create("TextLabel", {
+        Size =
+            UDim2.new(
                 1,
+                0,
+                0,
+                isPhone and 20 or 25
+            ),
 
-            Text =
-                "welcome "
-                .. player.DisplayName,
+        BackgroundTransparency =
+            1,
 
-            TextColor3 =
-                Colors.Accent,
+        Text =
+            "welcome "
+            .. player.DisplayName,
 
-            TextSize =
-                isPhone
-                and 10
-                or 12,
+        TextColor3 =
+            Colors.Accent,
 
-            Font =
-                Enum.Font.GothamMedium,
+        TextSize =
+            isPhone and 10 or 12,
 
-            TextXAlignment =
-                Enum.TextXAlignment.Left
-        },
-        home
-    )
+        Font =
+            Enum.Font.GothamMedium,
+
+        TextXAlignment =
+            Enum.TextXAlignment.Left
+    }, home)
 
     local sheriffSection =
         section(
@@ -5544,50 +4707,41 @@ buildMainMenu = function(
         "Aim Bot",
         sheriff.quickShot,
         function(value)
-
             sheriff.quickShot =
                 value
         end
     )
 
-    create(
-        "TextLabel",
-        {
-            Size =
-                UDim2.new(
-                    1,
-                    0,
-                    0,
-                    isPhone
-                    and 29
-                    or 36
-                ),
-
-            BackgroundTransparency =
+    create("TextLabel", {
+        Size =
+            UDim2.new(
                 1,
+                0,
+                0,
+                isPhone and 29 or 36
+            ),
 
-            Text =
-                "click where you want to shoot — you dont need the Gun in your hand",
+        BackgroundTransparency =
+            1,
 
-            TextColor3 =
-                Colors.SubText,
+        Text =
+            "click where you want to shoot — the Gun gets equipped and put away for you",
 
-            TextSize =
-                isPhone
-                and 8
-                or 10,
+        TextColor3 =
+            Colors.SubText,
 
-            Font =
-                Enum.Font.Gotham,
+        TextSize =
+            isPhone and 8 or 10,
 
-            TextWrapped =
-                true,
+        Font =
+            Enum.Font.Gotham,
 
-            TextXAlignment =
-                Enum.TextXAlignment.Left
-        },
-        sheriffSection
-    )
+        TextWrapped =
+            true,
+
+        TextXAlignment =
+            Enum.TextXAlignment.Left
+    }, sheriffSection)
 
     local murdererSection =
         section(
@@ -5599,7 +4753,6 @@ buildMainMenu = function(
         murdererSection,
         "Throw Knife",
         function()
-
             task.spawn(
                 throwKnifeOnce
             )
@@ -5611,7 +4764,6 @@ buildMainMenu = function(
         "Auto Throw Knife",
         murderer.autoThrow,
         function(value)
-
             murderer.autoThrow =
                 value
         end
@@ -5627,7 +4779,6 @@ buildMainMenu = function(
             * 100
         ),
         function(value)
-
             murderer.throwDelay =
                 value / 100
         end
@@ -5644,7 +4795,6 @@ buildMainMenu = function(
         "ESP",
         esp.enabled,
         function(value)
-
             if value then
                 enableESP()
             else
@@ -5663,7 +4813,6 @@ buildMainMenu = function(
         gunSection,
         "Pick Up Gun",
         function()
-
             pickupGun()
         end
     )
@@ -5673,7 +4822,6 @@ buildMainMenu = function(
         "Auto Pick Up Gun",
         gunPickup.auto,
         function(value)
-
             gunPickup.auto =
                 value
         end
@@ -5690,7 +4838,6 @@ buildMainMenu = function(
         "Speed",
         movement.speedEnabled,
         function(value)
-
             movement.speedEnabled =
                 value
         end
@@ -5703,7 +4850,6 @@ buildMainMenu = function(
         250,
         movement.speed,
         function(value)
-
             movement.speed =
                 value
         end
@@ -5714,7 +4860,6 @@ buildMainMenu = function(
         "Infinite Jump",
         movement.infiniteJump,
         function(value)
-
             movement.infiniteJump =
                 value
         end
@@ -5725,7 +4870,6 @@ buildMainMenu = function(
         "Noclip",
         movement.noclip,
         function(value)
-
             movement.noclip =
                 value
 
@@ -5742,7 +4886,6 @@ buildMainMenu = function(
         "Spin Bot",
         movement.spin,
         function(value)
-
             movement.spin =
                 value
         end
@@ -5755,7 +4898,6 @@ buildMainMenu = function(
         1500,
         movement.spinSpeed,
         function(value)
-
             movement.spinSpeed =
                 value
         end
@@ -5772,12 +4914,11 @@ buildMainMenu = function(
         "Coin Farm",
         coinFarm.enabled,
         function(value)
-
             coinFarm.enabled =
                 value
 
             if value then
-                disableCoinFarmCollision()
+                disableCoinCharacterCollision()
                 ensureCoinPlatform()
             else
                 coinFarm.target =
@@ -5786,93 +4927,78 @@ buildMainMenu = function(
                 coinFarm.busy =
                     false
 
+                restoreCoinCollision()
                 destroyCoinPlatform()
-
-                restoreCoinFarmCollision()
             end
         end
     )
 
-    local coinCounter =
-        create(
-            "TextLabel",
-            {
-                Size =
-                    UDim2.new(
-                        1,
-                        0,
-                        0,
-                        compactHeight
-                    ),
+    local coinCounter = create("TextLabel", {
+        Size =
+            UDim2.new(
+                1,
+                0,
+                0,
+                compactHeight
+            ),
 
-                BackgroundColor3 =
-                    Colors.Control,
+        BackgroundColor3 =
+            Colors.Control,
 
-                BackgroundTransparency =
-                    0.08,
+        BackgroundTransparency =
+            0.08,
 
-                BorderSizePixel =
-                    0,
+        BorderSizePixel =
+            0,
 
-                Text =
-                    "Coins Picked Up: 0",
+        Text =
+            "Coins Picked Up: 0",
 
-                TextColor3 =
-                    Colors.Accent,
+        TextColor3 =
+            Colors.Accent,
 
-                TextSize =
-                    isPhone
-                    and 10
-                    or 12,
+        TextSize =
+            isPhone and 10 or 12,
 
-                Font =
-                    Enum.Font.GothamBold
-            },
-            coinSection
-        )
+        Font =
+            Enum.Font.GothamBold
+    }, coinSection)
 
     addCorner(
         coinCounter,
         8
     )
 
-    local coinStatus =
-        create(
-            "TextLabel",
-            {
-                Size =
-                    UDim2.new(
-                        1,
-                        0,
-                        0,
-                        compactHeight
-                    ),
+    local coinStatus = create("TextLabel", {
+        Size =
+            UDim2.new(
+                1,
+                0,
+                0,
+                compactHeight
+            ),
 
-                BackgroundColor3 =
-                    Colors.Control,
+        BackgroundColor3 =
+            Colors.Control,
 
-                BackgroundTransparency =
-                    0.08,
+        BackgroundTransparency =
+            0.08,
 
-                BorderSizePixel =
-                    0,
+        BorderSizePixel =
+            0,
 
-                Text =
-                    "Idle",
+        Text =
+            "Idle",
 
-                TextColor3 =
-                    Colors.SubText,
+        TextColor3 =
+            Colors.SubText,
 
-                TextSize =
-                    isPhone
-                    and 9
-                    or 11,
+        TextSize =
+            isPhone and 9 or 11,
 
-                Font =
-                    Enum.Font.GothamMedium
-            },
-            coinSection
-        )
+        Font =
+            Enum.Font.GothamMedium
+    }, coinSection)
 
     addCorner(
         coinStatus,
@@ -5908,30 +5034,28 @@ buildMainMenu = function(
                     coinFarm.target
                 ) then
 
-                local verticalDifference =
+                local vertical =
                     coinFarm.target.Position.Y
                     - rootPart.Position.Y
 
-                if verticalDifference
-                    > 10 then
-
+                if vertical > 3 then
                     coinStatus.Text =
-                        "Flying up to coin"
-                elseif verticalDifference
-                    < 45 then
+                        "Going up"
 
+                elseif vertical < -3 then
                     coinStatus.Text =
-                        "Moving to coin"
+                        "Going down"
+
                 else
                     coinStatus.Text =
-                        "Moving under coin"
+                        "Getting coin"
                 end
 
                 coinStatus.TextColor3 =
                     Colors.Accent
             else
                 coinStatus.Text =
-                    "Finding MainCoin"
+                    "Finding visible MainCoin"
 
                 coinStatus.TextColor3 =
                     Colors.SubText
@@ -5948,64 +5072,53 @@ buildMainMenu = function(
         )
 
     local updateLines = {
-        "coin farm is way smoother now",
-        "maincoins are cached so it doesnt scan workspace every loop",
-        "farm goes 60 studs under the coin first",
-        "then it shoots straight up super fast",
-        "after grabbing it the farm goes straight back down",
-        "then it instantly picks the next coin",
-        "reduced coin farm waits a lot",
+        "coin farm only grabs fully visible coins now",
+        "even slightly transparent coins get skipped",
+        "coin farm moves 9 studs under the coin",
+        "then shoots straight up and straight back down",
+        "maincoin cache keeps the farm lighter",
+        "coin collision scan doesnt run every frame anymore",
+        "support platform stays collidable",
+        "pc / phone picker actually looks like a pc and phone now",
         "esp can still be turned on and off",
-        "esp still comes back after respawns",
-        "coin bag reset only happens when the text is actually visible",
+        "coin bag reset still only works on visible text",
         "anti fling is still in utility"
     }
 
-    for _, line
-        in ipairs(
-            updateLines
-        ) do
-
-        create(
-            "TextLabel",
-            {
-                Size =
-                    UDim2.new(
-                        1,
-                        0,
-                        0,
-                        0
-                    ),
-
-                AutomaticSize =
-                    Enum.AutomaticSize.Y,
-
-                BackgroundTransparency =
+    for _, line in ipairs(updateLines) do
+        create("TextLabel", {
+            Size =
+                UDim2.new(
                     1,
+                    0,
+                    0,
+                    0
+                ),
 
-                Text =
-                    "• "
-                    .. line,
+            AutomaticSize =
+                Enum.AutomaticSize.Y,
 
-                TextColor3 =
-                    Colors.SubText,
+            BackgroundTransparency =
+                1,
 
-                TextSize =
-                    isPhone
-                    and 9
-                    or 11,
+            Text =
+                "• " .. line,
 
-                Font =
-                    Enum.Font.Gotham,
+            TextColor3 =
+                Colors.SubText,
 
-                TextWrapped =
-                    true,
+            TextSize =
+                isPhone and 9 or 11,
 
-                TextXAlignment =
-                    Enum.TextXAlignment.Left
-            },
-            updates
-        )
+            Font =
+                Enum.Font.Gotham,
+
+            TextWrapped =
+                true,
+
+            TextXAlignment =
+                Enum.TextXAlignment.Left
+        }, updates)
     end
 
     local utility =
@@ -6019,7 +5132,6 @@ buildMainMenu = function(
         "Anti Fling",
         antiFling.enabled,
         function(value)
-
             antiFling.enabled =
                 value
 
@@ -6035,10 +5147,8 @@ buildMainMenu = function(
         utility,
         "Copy Server ID",
         function()
-
             if setclipboard then
                 pcall(function()
-
                     setclipboard(
                         game.JobId
                     )
@@ -6046,7 +5156,6 @@ buildMainMenu = function(
 
             elseif toclipboard then
                 pcall(function()
-
                     toclipboard(
                         game.JobId
                     )
@@ -6059,15 +5168,12 @@ buildMainMenu = function(
         utility,
         "Rejoin Server",
         function()
-
             pcall(function()
-
-                TeleportService:
-                    TeleportToPlaceInstance(
-                        game.PlaceId,
-                        game.JobId,
-                        player
-                    )
+                TeleportService:TeleportToPlaceInstance(
+                    game.PlaceId,
+                    game.JobId,
+                    player
+                )
             end)
         end
     )
@@ -6076,10 +5182,8 @@ buildMainMenu = function(
         utility,
         "Reset Character",
         function()
-
             if humanoid then
-                humanoid.Health =
-                    0
+                humanoid.Health = 0
             end
         end
     )
@@ -6088,7 +5192,6 @@ buildMainMenu = function(
         utility,
         "Unload Menu",
         function()
-
             _G.THHGrowersHardUnloaded =
                 true
 
@@ -6100,53 +5203,48 @@ buildMainMenu = function(
     local floatingButton
 
     if isPhone then
-        floatingButton =
-            create(
-                "ImageButton",
-                {
-                    AnchorPoint =
-                        Vector2.new(
-                            1,
-                            1
-                        ),
+        floatingButton = create("ImageButton", {
+            AnchorPoint =
+                Vector2.new(
+                    1,
+                    1
+                ),
 
-                    Position =
-                        UDim2.new(
-                            1,
-                            -12,
-                            1,
-                            -15
-                        ),
+            Position =
+                UDim2.new(
+                    1,
+                    -12,
+                    1,
+                    -15
+                ),
 
-                    Size =
-                        UDim2.fromOffset(
-                            48,
-                            48
-                        ),
+            Size =
+                UDim2.fromOffset(
+                    48,
+                    48
+                ),
 
-                    BackgroundColor3 =
-                        Colors.Card,
+            BackgroundColor3 =
+                Colors.Card,
 
-                    BackgroundTransparency =
-                        0.08,
+            BackgroundTransparency =
+                0.08,
 
-                    BorderSizePixel =
-                        0,
+            BorderSizePixel =
+                0,
 
-                    Image =
-                        MM2_ICON,
+            Image =
+                MM2_ICON,
 
-                    Visible =
-                        false,
+            Visible =
+                false,
 
-                    AutoButtonColor =
-                        false,
+            AutoButtonColor =
+                false,
 
-                    ZIndex =
-                        400
-                },
-                gui
-            )
+            ZIndex =
+                400
+        }, gui)
 
         addCorner(
             floatingButton,
@@ -6154,9 +5252,7 @@ buildMainMenu = function(
         )
     end
 
-    local function setMenuVisible(
-        value
-    )
+    local function setMenuVisible(value)
         menu.Visible =
             value
 
@@ -6166,60 +5262,42 @@ buildMainMenu = function(
         end
     end
 
-    track(
-        minimizeButton.MouseButton1Click:
-            Connect(function()
+    track(minimizeButton.MouseButton1Click:Connect(function()
+        setMenuVisible(
+            false
+        )
+    end))
 
-                setMenuVisible(
-                    false
-                )
-            end)
-    )
-
-    track(
-        closeButton.MouseButton1Click:
-            Connect(function()
-
-                setMenuVisible(
-                    false
-                )
-            end)
-    )
+    track(closeButton.MouseButton1Click:Connect(function()
+        setMenuVisible(
+            false
+        )
+    end))
 
     if floatingButton then
-        track(
-            floatingButton.MouseButton1Click:
-                Connect(function()
-
-                    setMenuVisible(
-                        true
-                    )
-                end)
-        )
+        track(floatingButton.MouseButton1Click:Connect(function()
+            setMenuVisible(
+                true
+            )
+        end))
     end
 
-    track(
-        UserInputService.InputBegan:
-            Connect(function(
-                input,
-                gameProcessed
-            )
-
-                if gameProcessed
-                    or isPhone then
-
-                    return
-                end
-
-                if input.KeyCode
-                    == Enum.KeyCode.RightShift then
-
-                    setMenuVisible(
-                        not menu.Visible
-                    )
-                end
-            end)
+    track(UserInputService.InputBegan:Connect(function(
+        input,
+        gameProcessed
     )
+        if gameProcessed
+            or isPhone then
+
+            return
+        end
+
+        if input.KeyCode == Enum.KeyCode.RightShift then
+            setMenuVisible(
+                not menu.Visible
+            )
+        end
+    end))
 
     showPage(
         "Home"
