@@ -21,6 +21,7 @@ pcall(function()
 end)
 
 local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
 local PROJECT_ID = "PD6XH2EGXZXUHGED"
 local AUTH_SECRET = "04cce9295d9d2476cb2516b3363693a3c401767b4e75bd01"
@@ -169,8 +170,40 @@ local safety = {
     gravityForce = nil
 }
 
-local playerGui =
-    player:WaitForChild("PlayerGui")
+local replay = {
+    recording = false,
+    playing = false,
+
+    currentTake = nil,
+    takes = {},
+
+    maxTakes = 2,
+    maxDuration = 120,
+    sampleRate = 1 / 20,
+
+    takeCounter = 0,
+
+    playbackFolder = nil,
+    playbackActors = {},
+
+    playbackConnection = nil,
+
+    offset = Vector3.new(0, -12000, 0),
+
+    oldCameraType = nil,
+    oldCameraSubject = nil,
+    oldCameraCFrame = nil,
+    oldCameraFov = nil,
+
+    oldWalkSpeed = nil,
+    oldJumpPower = nil,
+    oldJumpHeight = nil,
+    oldAutoRotate = nil,
+
+    statusLabel = nil
+}
+
+local bagTextConnections = {}
 
 local function disconnect(connection)
     if connection then
@@ -186,8 +219,7 @@ local function track(connection)
 end
 
 local function create(className, properties, parent)
-    local object =
-        Instance.new(className)
+    local object = Instance.new(className)
 
     for property, value in pairs(properties or {}) do
         object[property] = value
@@ -204,11 +236,7 @@ local function addCorner(object, radius)
     return create(
         "UICorner",
         {
-            CornerRadius =
-                UDim.new(
-                    0,
-                    radius or 9
-                )
+            CornerRadius = UDim.new(0, radius or 9)
         },
         object
     )
@@ -223,17 +251,9 @@ local function addStroke(
     return create(
         "UIStroke",
         {
-            Color =
-                color
-                or Colors.Stroke,
-
-            Thickness =
-                thickness
-                or 1,
-
-            Transparency =
-                transparency
-                or 0.55
+            Color = color or Colors.Stroke,
+            Thickness = thickness or 1,
+            Transparency = transparency or 0.55
         },
         object
     )
@@ -257,8 +277,7 @@ end
 
 local function getUIParent()
     if gethui then
-        local success, result =
-            pcall(gethui)
+        local success, result = pcall(gethui)
 
         if success and result then
             return result
@@ -323,8 +342,7 @@ local function animateButton(button)
 end
 
 local function makeDraggable(frame, handle)
-    handle =
-        handle or frame
+    handle = handle or frame
 
     local dragging = false
     local activeInput
@@ -339,12 +357,8 @@ local function makeDraggable(frame, handle)
                     == Enum.UserInputType.Touch then
 
                 dragging = true
-
-                dragStart =
-                    input.Position
-
-                startPosition =
-                    frame.Position
+                dragStart = input.Position
+                startPosition = frame.Position
             end
         end)
     )
@@ -370,8 +384,7 @@ local function makeDraggable(frame, handle)
             end
 
             local delta =
-                input.Position
-                - dragStart
+                input.Position - dragStart
 
             frame.Position =
                 UDim2.new(
@@ -413,8 +426,7 @@ local function clearLocalCollisionPart(part)
         localCollision.propertyConnections[part]
     )
 
-    localCollision.propertyConnections[part] =
-        nil
+    localCollision.propertyConnections[part] = nil
 end
 
 local function enforceLocalCollisionPart(part)
@@ -436,9 +448,7 @@ local function enforceLocalCollisionPart(part)
 
     if not localCollision.propertyConnections[part] then
         localCollision.propertyConnections[part] =
-            part:GetPropertyChangedSignal(
-                "CanCollide"
-            ):Connect(function()
+            part:GetPropertyChangedSignal("CanCollide"):Connect(function()
 
                 if not alive
                     or not anyCollisionSource()
@@ -459,8 +469,7 @@ local function stopLocalCollisionWatcher()
         localCollision.descendantConnection
     )
 
-    localCollision.descendantConnection =
-        nil
+    localCollision.descendantConnection = nil
 end
 
 local function restoreLocalCollision()
@@ -502,18 +511,15 @@ local function rebuildLocalCollision()
         character:GetDescendants()
     ) do
         if object:IsA("BasePart") then
-            enforceLocalCollisionPart(
-                object
-            )
+            enforceLocalCollisionPart(object)
         end
     end
 
     localCollision.descendantConnection =
         character.DescendantAdded:Connect(function(object)
+
             if object:IsA("BasePart") then
-                enforceLocalCollisionPart(
-                    object
-                )
+                enforceLocalCollisionPart(object)
             end
         end)
 end
@@ -538,7 +544,8 @@ local function setSpeedEnabled(value)
 
     if movement.speedEnabled
         and not coinFarm.enabled
-        and not safety.underground then
+        and not safety.underground
+        and not replay.playing then
 
         humanoid.WalkSpeed =
             movement.speed
@@ -549,13 +556,13 @@ local function setSpeedEnabled(value)
 end
 
 local function setSpeed(value)
-    movement.speed =
-        value
+    movement.speed = value
 
     if movement.speedEnabled
         and humanoid
         and not coinFarm.enabled
-        and not safety.underground then
+        and not safety.underground
+        and not replay.playing then
 
         humanoid.WalkSpeed =
             value
@@ -568,8 +575,7 @@ local function destroySpin()
             movement.spinVelocity:Destroy()
         end)
 
-        movement.spinVelocity =
-            nil
+        movement.spinVelocity = nil
     end
 
     if rootPart
@@ -595,7 +601,8 @@ local function rebuildSpin()
 
     if not movement.spin
         or not rootPart
-        or not humanoid then
+        or not humanoid
+        or replay.playing then
 
         return
     end
@@ -629,9 +636,7 @@ local function rebuildSpin()
         )
 
     spin.P = 1250
-
-    spin.Parent =
-        rootPart
+    spin.Parent = rootPart
 
     movement.spinVelocity =
         spin
@@ -669,11 +674,8 @@ local function clearAntiFlingPart(part)
         antiFling.partConnections[part]
     )
 
-    antiFling.partConnections[part] =
-        nil
-
-    antiFling.trackedParts[part] =
-        nil
+    antiFling.partConnections[part] = nil
+    antiFling.trackedParts[part] = nil
 end
 
 local function applyAntiFlingPart(part)
@@ -689,26 +691,21 @@ local function applyAntiFlingPart(part)
             part.CanCollide
     end
 
-    antiFling.trackedParts[part] =
-        true
+    antiFling.trackedParts[part] = true
 
     if part.CanCollide then
-        part.CanCollide =
-            false
+        part.CanCollide = false
     end
 
     if not antiFling.partConnections[part] then
         antiFling.partConnections[part] =
-            part:GetPropertyChangedSignal(
-                "CanCollide"
-            ):Connect(function()
+            part:GetPropertyChangedSignal("CanCollide"):Connect(function()
 
                 if antiFling.enabled
                     and part.Parent
                     and part.CanCollide then
 
-                    part.CanCollide =
-                        false
+                    part.CanCollide = false
                 end
             end)
     end
@@ -744,17 +741,13 @@ local function applyAntiFlingCharacter(
         return
     end
 
-    clearAntiFlingCharacter(
-        targetPlayer
-    )
+    clearAntiFlingCharacter(targetPlayer)
 
     for _, object in ipairs(
         targetCharacter:GetDescendants()
     ) do
         if object:IsA("BasePart") then
-            applyAntiFlingPart(
-                object
-            )
+            applyAntiFlingPart(object)
         end
     end
 
@@ -763,10 +756,9 @@ local function applyAntiFlingCharacter(
     table.insert(
         list,
         targetCharacter.DescendantAdded:Connect(function(object)
+
             if object:IsA("BasePart") then
-                applyAntiFlingPart(
-                    object
-                )
+                applyAntiFlingPart(object)
             end
         end)
     )
@@ -774,18 +766,15 @@ local function applyAntiFlingCharacter(
     table.insert(
         list,
         targetCharacter.DescendantRemoving:Connect(function(object)
+
             if not object:IsA("BasePart") then
                 return
             end
 
             task.defer(function()
                 if not object.Parent then
-                    clearAntiFlingPart(
-                        object
-                    )
-
-                    antiFling.originals[object] =
-                        nil
+                    clearAntiFlingPart(object)
+                    antiFling.originals[object] = nil
                 end
             end)
         end)
@@ -807,12 +796,8 @@ local function setupAntiFlingPlayer(targetPlayer)
         ]
     )
 
-    antiFling.playerConnections[
-        targetPlayer
-    ] =
-        targetPlayer.CharacterAdded:Connect(function(
-            targetCharacter
-        )
+    antiFling.playerConnections[targetPlayer] =
+        targetPlayer.CharacterAdded:Connect(function(targetCharacter)
 
             if antiFling.enabled then
                 task.defer(function()
@@ -847,9 +832,7 @@ local function enableAntiFling()
         Players:GetPlayers()
     ) do
         if targetPlayer ~= player then
-            setupAntiFlingPlayer(
-                targetPlayer
-            )
+            setupAntiFlingPlayer(targetPlayer)
         end
     end
 
@@ -857,18 +840,14 @@ local function enableAntiFling()
         Players.PlayerAdded:Connect(function(targetPlayer)
 
             if antiFling.enabled then
-                setupAntiFlingPlayer(
-                    targetPlayer
-                )
+                setupAntiFlingPlayer(targetPlayer)
             end
         end)
 
     antiFling.playerRemovingConnection =
         Players.PlayerRemoving:Connect(function(targetPlayer)
 
-            clearAntiFlingCharacter(
-                targetPlayer
-            )
+            clearAntiFlingCharacter(targetPlayer)
 
             disconnect(
                 antiFling.playerConnections[
@@ -892,16 +871,11 @@ local function enableAntiFling()
                 if not part
                     or not part.Parent then
 
-                    clearAntiFlingPart(
-                        part
-                    )
-
-                    antiFling.originals[part] =
-                        nil
+                    clearAntiFlingPart(part)
+                    antiFling.originals[part] = nil
 
                 elseif part.CanCollide then
-                    part.CanCollide =
-                        false
+                    part.CanCollide = false
                 end
             end
 
@@ -922,11 +896,8 @@ local function disableAntiFling()
         antiFling.playerRemovingConnection
     )
 
-    antiFling.playerAddedConnection =
-        nil
-
-    antiFling.playerRemovingConnection =
-        nil
+    antiFling.playerAddedConnection = nil
+    antiFling.playerRemovingConnection = nil
 
     for targetPlayer, connection in pairs(
         antiFling.playerConnections
@@ -976,8 +947,7 @@ local function destroyUndergroundForce()
             safety.gravityForce:Destroy()
         end)
 
-        safety.gravityForce =
-            nil
+        safety.gravityForce = nil
     end
 
     if safety.gravityAttachment then
@@ -985,8 +955,7 @@ local function destroyUndergroundForce()
             safety.gravityAttachment:Destroy()
         end)
 
-        safety.gravityAttachment =
-            nil
+        safety.gravityAttachment = nil
     end
 end
 
@@ -994,7 +963,8 @@ local function rebuildUndergroundForce()
     destroyUndergroundForce()
 
     if not safety.underground
-        or not rootPart then
+        or not rootPart
+        or replay.playing then
 
         return
     end
@@ -1044,13 +1014,13 @@ end
 local function enableUnderground()
     if safety.underground
         or not humanoid
-        or not rootPart then
+        or not rootPart
+        or replay.playing then
 
         return
     end
 
-    safety.underground =
-        true
+    safety.underground = true
 
     setCollisionSource(
         "underground",
@@ -1098,8 +1068,7 @@ local function disableUnderground(returnToCamera)
         and camera.CFrame.Position
         or nil
 
-    safety.underground =
-        false
+    safety.underground = false
 
     destroyUndergroundForce()
 
@@ -1204,9 +1173,7 @@ local function getKnifeTool()
                 container:GetChildren()
             ) do
                 if object:IsA("Tool")
-                    and string.lower(
-                        object.Name
-                    ):find(
+                    and string.lower(object.Name):find(
                         "knife",
                         1,
                         true
@@ -1402,9 +1369,7 @@ local function addPlayerESP(targetPlayer)
         return
     end
 
-    removePlayerESP(
-        targetPlayer
-    )
+    removePlayerESP(targetPlayer)
 
     local highlight =
         Instance.new("Highlight")
@@ -1449,9 +1414,7 @@ local function setupESPPlayer(targetPlayer)
     end
 
     if esp.enabled then
-        addPlayerESP(
-            targetPlayer
-        )
+        addPlayerESP(targetPlayer)
     end
 
     disconnect(
@@ -1465,18 +1428,14 @@ local function setupESPPlayer(targetPlayer)
     ] =
         targetPlayer.CharacterAdded:Connect(function()
 
-            removePlayerESP(
-                targetPlayer
-            )
+            removePlayerESP(targetPlayer)
 
             task.wait(0.1)
 
             if alive
                 and esp.enabled then
 
-                addPlayerESP(
-                    targetPlayer
-                )
+                addPlayerESP(targetPlayer)
             end
         end)
 end
@@ -1487,9 +1446,7 @@ local function enableESP()
     for _, targetPlayer in ipairs(
         Players:GetPlayers()
     ) do
-        setupESPPlayer(
-            targetPlayer
-        )
+        setupESPPlayer(targetPlayer)
     end
 end
 
@@ -1499,37 +1456,26 @@ local function disableESP()
     for targetPlayer in pairs(
         esp.highlights
     ) do
-        removePlayerESP(
-            targetPlayer
-        )
+        removePlayerESP(targetPlayer)
     end
 end
 
 for _, targetPlayer in ipairs(
     Players:GetPlayers()
 ) do
-    setupESPPlayer(
-        targetPlayer
-    )
+    setupESPPlayer(targetPlayer)
 end
 
 track(
-    Players.PlayerAdded:Connect(function(
-        targetPlayer
-    )
-        setupESPPlayer(
-            targetPlayer
-        )
+    Players.PlayerAdded:Connect(function(targetPlayer)
+        setupESPPlayer(targetPlayer)
     end)
 )
 
 track(
-    Players.PlayerRemoving:Connect(function(
-        targetPlayer
-    )
-        removePlayerESP(
-            targetPlayer
-        )
+    Players.PlayerRemoving:Connect(function(targetPlayer)
+
+        removePlayerESP(targetPlayer)
 
         disconnect(
             esp.characterConnections[
@@ -1545,7 +1491,9 @@ track(
 
 task.spawn(function()
     while alive do
-        if esp.enabled then
+        if esp.enabled
+            and not replay.playing then
+
             for _, targetPlayer in ipairs(
                 Players:GetPlayers()
             ) do
@@ -1562,9 +1510,7 @@ task.spawn(function()
                         or highlight.Adornee
                             ~= targetPlayer.Character then
 
-                        addPlayerESP(
-                            targetPlayer
-                        )
+                        addPlayerESP(targetPlayer)
 
                         highlight =
                             esp.highlights[
@@ -1640,13 +1586,12 @@ local function fireGunAtPosition(
     end
 
     local remote =
-        getGunRemote(
-            gun
-        )
+        getGunRemote(gun)
 
     if remote then
         local success =
             pcall(function()
+
                 remote:InvokeServer(
                     1,
                     worldPosition,
@@ -1725,9 +1670,7 @@ local function getClickedWorldPosition(input)
         Enum.RaycastFilterType.Exclude
 
     params.FilterDescendantsInstances =
-        character
-        and {character}
-        or {}
+        character and {character} or {}
 
     params.IgnoreWater =
         true
@@ -1750,7 +1693,8 @@ local function getClickedWorldPosition(input)
 end
 
 local function manualAimShoot(input)
-    if sheriff.shooting
+    if replay.playing
+        or sheriff.shooting
         or not sheriff.quickShot
         or not humanoid
         or not character then
@@ -1795,11 +1739,10 @@ local function manualAimShoot(input)
         true
 
     task.spawn(function()
+
         if gun.Parent ~= character then
             pcall(function()
-                humanoid:EquipTool(
-                    gun
-                )
+                humanoid:EquipTool(gun)
             end)
 
             RunService.Heartbeat:Wait()
@@ -1832,6 +1775,7 @@ track(
         gameProcessed
     )
         if gameProcessed
+            or replay.playing
             or not sheriff.quickShot then
 
             return
@@ -1842,9 +1786,7 @@ track(
             or input.UserInputType
                 == Enum.UserInputType.Touch then
 
-            manualAimShoot(
-                input
-            )
+            manualAimShoot(input)
         end
     end)
 )
@@ -1859,6 +1801,7 @@ local function sendEKey()
 
         local success =
             pcall(function()
+
                 keypress(0x45)
 
                 task.wait(0.04)
@@ -1874,6 +1817,7 @@ local function sendEKey()
     if VirtualInputManager then
         local success =
             pcall(function()
+
                 VirtualInputManager:SendKeyEvent(
                     true,
                     Enum.KeyCode.E,
@@ -1910,6 +1854,7 @@ local function sendRightClick()
         UserInputService:GetMouseLocation()
 
     return pcall(function()
+
         VirtualInputManager:SendMouseButtonEvent(
             mousePosition.X,
             mousePosition.Y,
@@ -1930,38 +1875,6 @@ local function sendRightClick()
             0
         )
     end)
-end
-
-local function throwButtonUsable(button)
-    if not button
-        or not button.Parent
-        or not button:IsA("GuiButton")
-        or not button.Visible then
-
-        return false
-    end
-
-    local current =
-        button
-
-    while current do
-        if current:IsA("GuiObject")
-            and not current.Visible then
-
-            return false
-        end
-
-        if current:IsA("ScreenGui")
-            and not current.Enabled then
-
-            return false
-        end
-
-        current =
-            current.Parent
-    end
-
-    return true
 end
 
 local function isThrowButton(object)
@@ -1997,6 +1910,36 @@ local function isThrowButton(object)
         )
 end
 
+local function throwButtonUsable(button)
+    if not button
+        or not button.Parent
+        or not button:IsA("GuiButton")
+        or not button.Visible then
+
+        return false
+    end
+
+    local current = button
+
+    while current do
+        if current:IsA("GuiObject")
+            and not current.Visible then
+
+            return false
+        end
+
+        if current:IsA("ScreenGui")
+            and not current.Enabled then
+
+            return false
+        end
+
+        current = current.Parent
+    end
+
+    return true
+end
+
 local function findThrowButton()
     if throwButtonUsable(
         murderer.cachedThrowButton
@@ -2005,8 +1948,7 @@ local function findThrowButton()
         return murderer.cachedThrowButton
     end
 
-    murderer.cachedThrowButton =
-        nil
+    murderer.cachedThrowButton = nil
 
     for _, object in ipairs(
         playerGui:GetDescendants()
@@ -2026,6 +1968,7 @@ end
 
 track(
     playerGui.DescendantAdded:Connect(function(object)
+
         if isThrowButton(object) then
             murderer.cachedThrowButton =
                 object
@@ -2035,6 +1978,7 @@ track(
 
 track(
     playerGui.DescendantRemoving:Connect(function(object)
+
         if murderer.cachedThrowButton
             == object then
 
@@ -2061,6 +2005,7 @@ local function pressMobileThrow()
         + button.AbsoluteSize / 2
 
     return pcall(function()
+
         VirtualInputManager:SendMouseButtonEvent(
             center.X,
             center.Y,
@@ -2084,7 +2029,8 @@ local function pressMobileThrow()
 end
 
 local function throwKnifeOnce()
-    if murderer.throwing
+    if replay.playing
+        or murderer.throwing
         or not humanoid
         or not character then
 
@@ -2151,6 +2097,7 @@ end
 task.spawn(function()
     while alive do
         if murderer.autoThrow
+            and not replay.playing
             and not murderer.throwing
             and os.clock()
                 - murderer.lastThrow
@@ -2215,6 +2162,7 @@ gunPickup.cachedDrop =
 
 track(
     workspace.DescendantAdded:Connect(function(object)
+
         if isGunDropName(
             object.Name
         ) then
@@ -2227,6 +2175,7 @@ track(
 
 track(
     workspace.DescendantRemoving:Connect(function(object)
+
         if gunPickup.cachedDrop
             == object then
 
@@ -2281,7 +2230,8 @@ local function getObjectPart(object)
 end
 
 local function touchPickup(object, part)
-    if not rootPart
+    if replay.playing
+        or not rootPart
         or not object
         or not part then
 
@@ -2290,6 +2240,7 @@ local function touchPickup(object, part)
 
     if firetouchinterest then
         pcall(function()
+
             firetouchinterest(
                 rootPart,
                 part,
@@ -2324,7 +2275,8 @@ local function touchPickup(object, part)
 end
 
 local function pickupGun()
-    if gunPickup.busy
+    if replay.playing
+        or gunPickup.busy
         or coinFarm.enabled
         or not rootPart
         or getGunTool() then
@@ -2414,6 +2366,7 @@ end
 task.spawn(function()
     while alive do
         if gunPickup.auto
+            and not replay.playing
             and not gunPickup.busy
             and not coinFarm.enabled
             and not getGunTool()
@@ -2506,6 +2459,7 @@ buildCoinCache()
 
 track(
     workspace.DescendantAdded:Connect(function(object)
+
         if isMainCoin(object) then
             addCoin(object)
         end
@@ -2514,6 +2468,7 @@ track(
 
 track(
     workspace.DescendantRemoving:Connect(function(object)
+
         if coinFarm.lookup[object] then
             removeCoin(object)
         end
@@ -2549,9 +2504,7 @@ local function getNearestCoin()
     local rootPosition =
         rootPart.Position
 
-    local nearestCoin =
-        nil
-
+    local nearestCoin
     local nearestDistanceSquared =
         math.huge
 
@@ -2655,7 +2608,8 @@ local function ensureCoinPlatform()
 end
 
 local function setFarmPosition(position)
-    if not rootPart
+    if replay.playing
+        or not rootPart
         or not rootPart.Parent then
 
         return
@@ -2688,16 +2642,16 @@ end
 
 local function moveFarmTo(
     destination,
-    speed,
+    speedValue,
     stopDistance,
     coin
 )
     stopDistance =
-        stopDistance
-        or 0.8
+        stopDistance or 0.8
 
     while alive
         and coinFarm.enabled
+        and not replay.playing
         and not coinFarm.fullBagDebounce
         and not safety.underground
         and rootPart
@@ -2735,7 +2689,7 @@ local function moveFarmTo(
         local step =
             math.min(
                 distance,
-                speed * dt
+                speedValue * dt
             )
 
         if distance > 0 then
@@ -2755,7 +2709,10 @@ local function waitForCoinPickup(coin)
 
     while alive
         and coinFarm.enabled
-        and os.clock() - started < 0.35 do
+        and not replay.playing
+        and os.clock()
+            - started
+            < 0.35 do
 
         if not coinIsAvailable(
             coin
@@ -2773,7 +2730,8 @@ local function waitForCoinPickup(coin)
 end
 
 local function collectCoin(coin)
-    if not coinIsAvailable(coin)
+    if replay.playing
+        or not coinIsAvailable(coin)
         or not rootPart then
 
         return false
@@ -2819,6 +2777,7 @@ local function collectCoin(coin)
         and coinIsAvailable(coin) then
 
         pcall(function()
+
             firetouchinterest(
                 rootPart,
                 coin,
@@ -2855,11 +2814,8 @@ local function setCoinFarmEnabled(value)
     coinFarm.enabled =
         value == true
 
-    coinFarm.busy =
-        false
-
-    coinFarm.target =
-        nil
+    coinFarm.busy = false
+    coinFarm.target = nil
 
     setCollisionSource(
         "coinFarm",
@@ -2878,13 +2834,60 @@ local function setCoinFarmEnabled(value)
 
         if movement.speedEnabled
             and humanoid
-            and not safety.underground then
+            and not safety.underground
+            and not replay.playing then
 
             humanoid.WalkSpeed =
                 movement.speed
         end
     end
 end
+
+task.spawn(function()
+    while alive do
+        if coinFarm.enabled
+            and not replay.playing
+            and not coinFarm.busy
+            and not coinFarm.fullBagDebounce
+            and not safety.underground
+            and rootPart then
+
+            if os.clock()
+                - coinFarm.lastCacheClean
+                >= 5 then
+
+                coinFarm.lastCacheClean =
+                    os.clock()
+
+                cleanCoinCache()
+            end
+
+            local coin =
+                getNearestCoin()
+
+            coinFarm.target =
+                coin
+
+            if coin then
+                coinFarm.busy =
+                    true
+
+                collectCoin(
+                    coin
+                )
+
+                coinFarm.busy =
+                    false
+            else
+                task.wait(0.08)
+            end
+        else
+            task.wait(0.03)
+        end
+
+        task.wait(0.01)
+    end
+end)
 
 local function guiObjectVisible(object)
     if not object
@@ -2920,7 +2923,7 @@ local function guiObjectVisible(object)
         workspace.CurrentCamera
 
     if not camera then
-        return false
+        return true
     end
 
     local position =
@@ -2966,9 +2969,12 @@ local function textLooksLikeBagFull(object)
         1,
         true
     ) ~= nil
+        or normalized:find(
+            "bagfull",
+            1,
+            true
+        ) ~= nil
 end
-
-local bagTextConnections = {}
 
 local function watchBagTextObject(object)
     if not (
@@ -2985,24 +2991,26 @@ local function watchBagTextObject(object)
             object
     end
 
-    if not bagTextConnections[object] then
-        bagTextConnections[object] =
-            object:GetPropertyChangedSignal(
-                "Text"
-            ):Connect(function()
-
-                if textLooksLikeBagFull(object) then
-                    coinFarm.cachedBagText =
-                        object
-
-                elseif coinFarm.cachedBagText
-                    == object then
-
-                    coinFarm.cachedBagText =
-                        nil
-                end
-            end)
+    if bagTextConnections[object] then
+        return
     end
+
+    bagTextConnections[object] =
+        object:GetPropertyChangedSignal(
+            "Text"
+        ):Connect(function()
+
+            if textLooksLikeBagFull(object) then
+                coinFarm.cachedBagText =
+                    object
+
+            elseif coinFarm.cachedBagText
+                == object then
+
+                coinFarm.cachedBagText =
+                    nil
+            end
+        end)
 end
 
 for _, object in ipairs(
@@ -3015,6 +3023,7 @@ end
 
 track(
     playerGui.DescendantAdded:Connect(function(object)
+
         watchBagTextObject(
             object
         )
@@ -3023,6 +3032,7 @@ track(
 
 track(
     playerGui.DescendantRemoving:Connect(function(object)
+
         if coinFarm.cachedBagText
             == object then
 
@@ -3039,34 +3049,62 @@ track(
     end)
 )
 
-local function getVisibleBagFull()
-    local object =
-        coinFarm.cachedBagText
+local function scanForBagFull()
+    if coinFarm.cachedBagText
+        and coinFarm.cachedBagText.Parent
+        and textLooksLikeBagFull(
+            coinFarm.cachedBagText
+        ) then
 
-    if object
-        and object.Parent
-        and textLooksLikeBagFull(object)
-        and object.TextTransparency < 0.95
-        and guiObjectVisible(object) then
+        return coinFarm.cachedBagText
+    end
 
-        return object
+    for _, object in ipairs(
+        playerGui:GetDescendants()
+    ) do
+        if textLooksLikeBagFull(object) then
+            coinFarm.cachedBagText =
+                object
+
+            return object
+        end
     end
 
     return nil
 end
 
 local function handleCoinBagFull()
-    if not coinFarm.enabled
+    if replay.playing
+        or not coinFarm.enabled
         or coinFarm.fullBagDebounce then
 
         return
     end
 
     local bagText =
-        getVisibleBagFull()
+        coinFarm.cachedBagText
+        or scanForBagFull()
 
-    if not bagText then
+    if not bagText
+        or not bagText.Parent
+        or not textLooksLikeBagFull(bagText)
+        or (
+            bagText:IsA("GuiObject")
+            and not guiObjectVisible(bagText)
+        ) then
+
         return
+    end
+
+    if bagText:IsA("TextLabel")
+        or bagText:IsA("TextButton")
+        or bagText:IsA("TextBox") then
+
+        if bagText.TextTransparency
+            >= 0.95 then
+
+            return
+        end
     end
 
     coinFarm.fullBagDebounce =
@@ -3084,6 +3122,9 @@ local function handleCoinBagFull()
         bagText:Destroy()
     end)
 
+    coinFarm.cachedBagText =
+        nil
+
     if humanoid
         and humanoid.Health > 0 then
 
@@ -3092,6 +3133,7 @@ local function handleCoinBagFull()
     end
 
     task.spawn(function()
+
         local newCharacter =
             player.CharacterAdded:Wait()
 
@@ -3124,51 +3166,8 @@ end
 task.spawn(function()
     while alive do
         if coinFarm.enabled
-            and not coinFarm.busy
-            and not coinFarm.fullBagDebounce
-            and not safety.underground
-            and rootPart then
+            and not replay.playing then
 
-            if os.clock()
-                - coinFarm.lastCacheClean
-                >= 5 then
-
-                coinFarm.lastCacheClean =
-                    os.clock()
-
-                cleanCoinCache()
-            end
-
-            local coin =
-                getNearestCoin()
-
-            coinFarm.target =
-                coin
-
-            if coin then
-                coinFarm.busy =
-                    true
-
-                collectCoin(
-                    coin
-                )
-
-                coinFarm.busy =
-                    false
-            else
-                task.wait(0.08)
-            end
-        else
-            task.wait(0.03)
-        end
-
-        task.wait(0.01)
-    end
-end)
-
-task.spawn(function()
-    while alive do
-        if coinFarm.enabled then
             handleCoinBagFull()
         end
 
@@ -3176,8 +3175,1277 @@ task.spawn(function()
     end
 end)
 
+local function updateReplayStatus(text, color)
+    if replay.statusLabel
+        and replay.statusLabel.Parent then
+
+        replay.statusLabel.Text =
+            text
+
+        replay.statusLabel.TextColor3 =
+            color or Colors.SubText
+    end
+end
+
+local function stripReplayScripts(instance)
+    for _, object in ipairs(
+        instance:GetDescendants()
+    ) do
+        if object:IsA("Script")
+            or object:IsA("LocalScript")
+            or object:IsA("ModuleScript") then
+
+            object:Destroy()
+
+        elseif object:IsA("ProximityPrompt")
+            or object:IsA("ClickDetector") then
+
+            object:Destroy()
+        end
+    end
+end
+
+local function safeClone(instance)
+    if not instance then
+        return nil
+    end
+
+    local oldArchivable =
+        instance.Archivable
+
+    local success, clone =
+        pcall(function()
+
+            instance.Archivable =
+                true
+
+            return instance:Clone()
+        end)
+
+    pcall(function()
+        instance.Archivable =
+            oldArchivable
+    end)
+
+    if success then
+        return clone
+    end
+
+    return nil
+end
+
+local function isLivePlayerCharacter(object)
+    if not object
+        or not object:IsA("Model") then
+
+        return false
+    end
+
+    return Players:GetPlayerFromCharacter(
+        object
+    ) ~= nil
+end
+
+local function createMapSnapshot()
+    local folder =
+        Instance.new("Folder")
+
+    folder.Name =
+        "THH_ReplayMapTemplate"
+
+    for _, object in ipairs(
+        workspace:GetChildren()
+    ) do
+        local skip =
+            object == workspace.CurrentCamera
+            or object:IsA("Terrain")
+            or isLivePlayerCharacter(object)
+            or object.Name == "THH_ReplayWorld"
+            or object.Name == "THH_CoinPlatform"
+
+        if not skip then
+            local clone =
+                safeClone(object)
+
+            if clone then
+                stripReplayScripts(clone)
+
+                for _, part in ipairs(
+                    clone:GetDescendants()
+                ) do
+                    if part:IsA("BasePart") then
+                        part.Anchored = true
+                        part.CanCollide = false
+                        part.CanTouch = false
+                        part.CanQuery = false
+                    end
+                end
+
+                if clone:IsA("BasePart") then
+                    clone.Anchored = true
+                    clone.CanCollide = false
+                    clone.CanTouch = false
+                    clone.CanQuery = false
+                end
+
+                clone.Parent =
+                    folder
+            end
+        end
+    end
+
+    return folder
+end
+
+local function motorKey(motor)
+    local part0 =
+        motor.Part0
+        and motor.Part0.Name
+        or ""
+
+    local part1 =
+        motor.Part1
+        and motor.Part1.Name
+        or ""
+
+    return motor.Name
+        .. "|"
+        .. part0
+        .. "|"
+        .. part1
+end
+
+local function captureMotors(model)
+    local result = {}
+
+    for _, object in ipairs(
+        model:GetDescendants()
+    ) do
+        if object:IsA("Motor6D") then
+            result[motorKey(object)] =
+                object.Transform
+        end
+    end
+
+    return result
+end
+
+local function buildMotorMap(model)
+    local result = {}
+
+    for _, object in ipairs(
+        model:GetDescendants()
+    ) do
+        if object:IsA("Motor6D") then
+            result[motorKey(object)] =
+                object
+        end
+    end
+
+    return result
+end
+
+local function prepareReplayCharacter(model)
+    stripReplayScripts(model)
+
+    local replayHumanoid =
+        model:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    if replayHumanoid then
+        replayHumanoid.DisplayDistanceType =
+            Enum.HumanoidDisplayDistanceType.None
+
+        replayHumanoid.AutoRotate =
+            false
+
+        replayHumanoid.PlatformStand =
+            true
+
+        replayHumanoid.WalkSpeed =
+            0
+
+        replayHumanoid.JumpPower =
+            0
+
+        local animator =
+            replayHumanoid:FindFirstChildOfClass(
+                "Animator"
+            )
+
+        if animator then
+            animator:Destroy()
+        end
+    end
+
+    local replayRoot =
+        model:FindFirstChild(
+            "HumanoidRootPart"
+        )
+
+    for _, object in ipairs(
+        model:GetDescendants()
+    ) do
+        if object:IsA("BasePart") then
+            object.CanCollide = false
+            object.CanTouch = false
+            object.CanQuery = false
+            object.Massless = true
+            object.Anchored =
+                object == replayRoot
+        end
+    end
+
+    if replayRoot then
+        replayRoot.Anchored =
+            true
+    end
+
+    return replayRoot
+end
+
+local function addReplayNameTag(
+    model,
+    displayName,
+    username
+)
+    local head =
+        model:FindFirstChild(
+            "Head"
+        )
+
+    if not head
+        or not head:IsA("BasePart") then
+
+        return
+    end
+
+    local old =
+        head:FindFirstChild(
+            "THH_ReplayName"
+        )
+
+    if old then
+        old:Destroy()
+    end
+
+    local billboard =
+        Instance.new("BillboardGui")
+
+    billboard.Name =
+        "THH_ReplayName"
+
+    billboard.Size =
+        UDim2.fromOffset(
+            220,
+            46
+        )
+
+    billboard.StudsOffset =
+        Vector3.new(
+            0,
+            2.7,
+            0
+        )
+
+    billboard.AlwaysOnTop =
+        true
+
+    billboard.Adornee =
+        head
+
+    billboard.Parent =
+        head
+
+    local label =
+        Instance.new("TextLabel")
+
+    label.Size =
+        UDim2.fromScale(
+            1,
+            1
+        )
+
+    label.BackgroundTransparency =
+        1
+
+    label.Text =
+        tostring(displayName)
+        .. "\n@"
+        .. tostring(username)
+
+    label.TextColor3 =
+        Colors.Text
+
+    label.TextStrokeTransparency =
+        0.45
+
+    label.TextSize =
+        14
+
+    label.Font =
+        Enum.Font.GothamBold
+
+    label.Parent =
+        billboard
+end
+
+local function captureReplayTemplate(
+    take,
+    targetPlayer
+)
+    local id =
+        tostring(
+            targetPlayer.UserId
+        )
+
+    if take.templates[id] then
+        return
+    end
+
+    local targetCharacter =
+        targetPlayer.Character
+
+    if not targetCharacter then
+        return
+    end
+
+    local clone =
+        safeClone(
+            targetCharacter
+        )
+
+    if not clone then
+        return
+    end
+
+    prepareReplayCharacter(clone)
+
+    clone.Name =
+        targetPlayer.Name
+
+    clone.Parent =
+        take.templateFolder
+
+    take.templates[id] =
+        clone
+
+    take.playerInfo[id] = {
+        name = targetPlayer.Name,
+        displayName = targetPlayer.DisplayName
+    }
+end
+
+local function sampleReplayFrame(take)
+    local camera =
+        workspace.CurrentCamera
+
+    local frame = {
+        time =
+            os.clock()
+            - take.started,
+
+        players = {},
+
+        camera =
+            camera
+            and camera.CFrame
+            or nil,
+
+        fov =
+            camera
+            and camera.FieldOfView
+            or 70
+    }
+
+    for _, targetPlayer in ipairs(
+        Players:GetPlayers()
+    ) do
+        local targetCharacter =
+            targetPlayer.Character
+
+        local targetRoot =
+            targetCharacter
+            and targetCharacter:FindFirstChild(
+                "HumanoidRootPart"
+            )
+
+        if targetCharacter
+            and targetRoot then
+
+            captureReplayTemplate(
+                take,
+                targetPlayer
+            )
+
+            local id =
+                tostring(
+                    targetPlayer.UserId
+                )
+
+            frame.players[id] = {
+                cframe =
+                    targetRoot.CFrame,
+
+                motors =
+                    captureMotors(
+                        targetCharacter
+                    )
+            }
+        end
+    end
+
+    table.insert(
+        take.frames,
+        frame
+    )
+
+    take.duration =
+        frame.time
+end
+
+local stopRecording
+
+local function startRecording()
+    if replay.playing
+        or replay.recording then
+
+        return
+    end
+
+    replay.takeCounter += 1
+
+    updateReplayStatus(
+        "Preparing map snapshot...",
+        Colors.Accent
+    )
+
+    local take = {
+        number =
+            replay.takeCounter,
+
+        frames = {},
+
+        templates = {},
+
+        playerInfo = {},
+
+        templateFolder =
+            Instance.new("Folder"),
+
+        mapTemplate =
+            nil,
+
+        started =
+            0,
+
+        duration =
+            0
+    }
+
+    take.templateFolder.Name =
+        "THH_ReplayActorTemplates"
+
+    take.mapTemplate =
+        createMapSnapshot()
+
+    for _, targetPlayer in ipairs(
+        Players:GetPlayers()
+    ) do
+        captureReplayTemplate(
+            take,
+            targetPlayer
+        )
+    end
+
+    take.started =
+        os.clock()
+
+    replay.currentTake =
+        take
+
+    replay.recording =
+        true
+
+    updateReplayStatus(
+        "● Recording Take "
+        .. tostring(
+            take.number
+        ),
+        Colors.Danger
+    )
+
+    task.spawn(function()
+
+        while alive
+            and replay.recording
+            and replay.currentTake == take do
+
+            sampleReplayFrame(
+                take
+            )
+
+            if take.duration
+                >= replay.maxDuration then
+
+                stopRecording()
+                break
+            end
+
+            task.wait(
+                replay.sampleRate
+            )
+        end
+    end)
+end
+
+stopRecording = function()
+    if not replay.recording then
+        return
+    end
+
+    replay.recording =
+        false
+
+    local take =
+        replay.currentTake
+
+    replay.currentTake =
+        nil
+
+    if not take then
+        return
+    end
+
+    if #take.frames < 2 then
+        if take.templateFolder then
+            take.templateFolder:Destroy()
+        end
+
+        if take.mapTemplate then
+            take.mapTemplate:Destroy()
+        end
+
+        updateReplayStatus(
+            "Recording too short",
+            Colors.Danger
+        )
+
+        return
+    end
+
+    table.insert(
+        replay.takes,
+        take
+    )
+
+    while #replay.takes
+        > replay.maxTakes do
+
+        local old =
+            table.remove(
+                replay.takes,
+                1
+            )
+
+        if old then
+            if old.templateFolder then
+                old.templateFolder:Destroy()
+            end
+
+            if old.mapTemplate then
+                old.mapTemplate:Destroy()
+            end
+        end
+    end
+
+    updateReplayStatus(
+        "Saved Take "
+        .. tostring(
+            take.number
+        )
+        .. " • "
+        .. string.format(
+            "%.1fs",
+            take.duration
+        ),
+        Colors.Accent
+    )
+end
+
+local function shiftReplayWorld(
+    folder,
+    offset
+)
+    for _, object in ipairs(
+        folder:GetDescendants()
+    ) do
+        if object:IsA("BasePart") then
+            object.CFrame =
+                object.CFrame
+                + offset
+
+            object.Anchored =
+                true
+
+            object.CanCollide =
+                false
+
+            object.CanTouch =
+                false
+
+            object.CanQuery =
+                false
+        end
+    end
+end
+
+local function setReplayActorVisible(
+    actorData,
+    visible
+)
+    if actorData.visible ==
+        visible then
+
+        return
+    end
+
+    actorData.visible =
+        visible
+
+    for _, part in ipairs(
+        actorData.parts
+    ) do
+        if part
+            and part.Parent then
+
+            part.LocalTransparencyModifier =
+                visible
+                and 0
+                or 1
+        end
+    end
+
+    if actorData.nameTag then
+        actorData.nameTag.Enabled =
+            visible
+    end
+end
+
+local function buildReplayActor(
+    take,
+    id,
+    parent
+)
+    local template =
+        take.templates[id]
+
+    if not template then
+        return nil
+    end
+
+    local clone =
+        safeClone(
+            template
+        )
+
+    if not clone then
+        return nil
+    end
+
+    clone.Name =
+        template.Name
+
+    clone.Parent =
+        parent
+
+    prepareReplayCharacter(
+        clone
+    )
+
+    local info =
+        take.playerInfo[id]
+        or {
+            name = template.Name,
+            displayName = template.Name
+        }
+
+    addReplayNameTag(
+        clone,
+        info.displayName,
+        info.name
+    )
+
+    local parts = {}
+
+    for _, object in ipairs(
+        clone:GetDescendants()
+    ) do
+        if object:IsA("BasePart") then
+            table.insert(
+                parts,
+                object
+            )
+        end
+    end
+
+    local head =
+        clone:FindFirstChild(
+            "Head"
+        )
+
+    local nameTag =
+        head
+        and head:FindFirstChild(
+            "THH_ReplayName"
+        )
+
+    local actorData = {
+        model =
+            clone,
+
+        root =
+            clone:FindFirstChild(
+                "HumanoidRootPart"
+            ),
+
+        motors =
+            buildMotorMap(
+                clone
+            ),
+
+        parts =
+            parts,
+
+        nameTag =
+            nameTag,
+
+        visible =
+            true
+    }
+
+    setReplayActorVisible(
+        actorData,
+        false
+    )
+
+    return actorData
+end
+
+local function restoreReplayCameraAndMovement()
+    local camera =
+        workspace.CurrentCamera
+
+    if camera then
+        pcall(function()
+
+            camera.CameraType =
+                replay.oldCameraType
+                or Enum.CameraType.Custom
+
+            camera.CameraSubject =
+                replay.oldCameraSubject
+
+            if replay.oldCameraCFrame then
+                camera.CFrame =
+                    replay.oldCameraCFrame
+            end
+
+            if replay.oldCameraFov then
+                camera.FieldOfView =
+                    replay.oldCameraFov
+            end
+        end)
+    end
+
+    if humanoid then
+        pcall(function()
+
+            if replay.oldWalkSpeed then
+                humanoid.WalkSpeed =
+                    replay.oldWalkSpeed
+            end
+
+            if replay.oldJumpPower then
+                humanoid.JumpPower =
+                    replay.oldJumpPower
+            end
+
+            if replay.oldJumpHeight then
+                humanoid.JumpHeight =
+                    replay.oldJumpHeight
+            end
+
+            if replay.oldAutoRotate ~= nil then
+                humanoid.AutoRotate =
+                    replay.oldAutoRotate
+            end
+        end)
+    end
+
+    replay.oldCameraType = nil
+    replay.oldCameraSubject = nil
+    replay.oldCameraCFrame = nil
+    replay.oldCameraFov = nil
+
+    replay.oldWalkSpeed = nil
+    replay.oldJumpPower = nil
+    replay.oldJumpHeight = nil
+    replay.oldAutoRotate = nil
+end
+
+local function stopReplay()
+    if not replay.playing then
+        return
+    end
+
+    replay.playing =
+        false
+
+    disconnect(
+        replay.playbackConnection
+    )
+
+    replay.playbackConnection =
+        nil
+
+    restoreReplayCameraAndMovement()
+
+    if replay.playbackFolder then
+        pcall(function()
+            replay.playbackFolder:Destroy()
+        end)
+
+        replay.playbackFolder =
+            nil
+    end
+
+    table.clear(
+        replay.playbackActors
+    )
+
+    if esp.enabled then
+        enableESP()
+    end
+
+    updateReplayStatus(
+        "Replay stopped • "
+        .. tostring(
+            #replay.takes
+        )
+        .. " saved",
+        Colors.SubText
+    )
+end
+
+local function applyReplayState(
+    actorData,
+    stateA,
+    stateB,
+    alpha
+)
+    if not actorData then
+        return
+    end
+
+    local state =
+        stateA
+        or stateB
+
+    if not state then
+        setReplayActorVisible(
+            actorData,
+            false
+        )
+
+        return
+    end
+
+    setReplayActorVisible(
+        actorData,
+        true
+    )
+
+    local targetCFrame
+
+    if stateA
+        and stateB then
+
+        targetCFrame =
+            stateA.cframe:Lerp(
+                stateB.cframe,
+                alpha
+            )
+    else
+        targetCFrame =
+            state.cframe
+    end
+
+    targetCFrame =
+        targetCFrame
+        + replay.offset
+
+    if actorData.model
+        and actorData.model.Parent then
+
+        pcall(function()
+            actorData.model:PivotTo(
+                targetCFrame
+            )
+        end)
+    end
+
+    for key, motor in pairs(
+        actorData.motors
+    ) do
+        if motor
+            and motor.Parent then
+
+            local transformA =
+                stateA
+                and stateA.motors
+                and stateA.motors[key]
+                or nil
+
+            local transformB =
+                stateB
+                and stateB.motors
+                and stateB.motors[key]
+                or nil
+
+            if transformA
+                and transformB then
+
+                motor.Transform =
+                    transformA:Lerp(
+                        transformB,
+                        alpha
+                    )
+
+            elseif transformA then
+                motor.Transform =
+                    transformA
+
+            elseif transformB then
+                motor.Transform =
+                    transformB
+            end
+        end
+    end
+end
+
+local function viewRecorded()
+    if replay.recording then
+        stopRecording()
+    end
+
+    if replay.playing then
+        stopReplay()
+    end
+
+    local take =
+        replay.takes[
+            #replay.takes
+        ]
+
+    if not take
+        or #take.frames < 2 then
+
+        updateReplayStatus(
+            "No recording saved",
+            Colors.Danger
+        )
+
+        return
+    end
+
+    local camera =
+        workspace.CurrentCamera
+
+    replay.playing =
+        true
+
+    disableESP()
+
+    if camera then
+        replay.oldCameraType =
+            camera.CameraType
+
+        replay.oldCameraSubject =
+            camera.CameraSubject
+
+        replay.oldCameraCFrame =
+            camera.CFrame
+
+        replay.oldCameraFov =
+            camera.FieldOfView
+    end
+
+    if humanoid then
+        replay.oldWalkSpeed =
+            humanoid.WalkSpeed
+
+        replay.oldJumpPower =
+            humanoid.JumpPower
+
+        replay.oldJumpHeight =
+            humanoid.JumpHeight
+
+        replay.oldAutoRotate =
+            humanoid.AutoRotate
+
+        humanoid.WalkSpeed = 0
+        humanoid.JumpPower = 0
+        humanoid.JumpHeight = 0
+        humanoid.AutoRotate = false
+    end
+
+    local replayFolder =
+        Instance.new("Folder")
+
+    replayFolder.Name =
+        "THH_ReplayWorld"
+
+    replayFolder.Parent =
+        workspace
+
+    replay.playbackFolder =
+        replayFolder
+
+    local mapFolder =
+        Instance.new("Folder")
+
+    mapFolder.Name =
+        "Map"
+
+    mapFolder.Parent =
+        replayFolder
+
+    if take.mapTemplate then
+        local mapClone =
+            safeClone(
+                take.mapTemplate
+            )
+
+        if mapClone then
+            for _, object in ipairs(
+                mapClone:GetChildren()
+            ) do
+                object.Parent =
+                    mapFolder
+            end
+
+            mapClone:Destroy()
+
+            shiftReplayWorld(
+                mapFolder,
+                replay.offset
+            )
+        end
+    end
+
+    local actorsFolder =
+        Instance.new("Folder")
+
+    actorsFolder.Name =
+        "Players"
+
+    actorsFolder.Parent =
+        replayFolder
+
+    table.clear(
+        replay.playbackActors
+    )
+
+    for id in pairs(
+        take.templates
+    ) do
+        replay.playbackActors[id] =
+            buildReplayActor(
+                take,
+                id,
+                actorsFolder
+            )
+    end
+
+    local playbackStarted =
+        os.clock()
+
+    local frameIndex =
+        1
+
+    updateReplayStatus(
+        "▶ Playing Take "
+        .. tostring(
+            take.number
+        ),
+        Colors.Accent
+    )
+
+    replay.playbackConnection =
+        RunService.RenderStepped:Connect(function()
+
+            if not alive
+                or not replay.playing then
+
+                return
+            end
+
+            local elapsed =
+                os.clock()
+                - playbackStarted
+
+            if elapsed >= take.duration then
+                stopReplay()
+                return
+            end
+
+            while frameIndex
+                    < #take.frames - 1
+                and take.frames[
+                    frameIndex + 1
+                ].time <= elapsed do
+
+                frameIndex += 1
+            end
+
+            local frameA =
+                take.frames[
+                    frameIndex
+                ]
+
+            local frameB =
+                take.frames[
+                    math.min(
+                        frameIndex + 1,
+                        #take.frames
+                    )
+                ]
+
+            local difference =
+                math.max(
+                    frameB.time
+                    - frameA.time,
+                    0.0001
+                )
+
+            local alpha =
+                math.clamp(
+                    (
+                        elapsed
+                        - frameA.time
+                    )
+                    / difference,
+                    0,
+                    1
+                )
+
+            for id, actorData in pairs(
+                replay.playbackActors
+            ) do
+                applyReplayState(
+                    actorData,
+                    frameA.players[id],
+                    frameB.players[id],
+                    alpha
+                )
+            end
+
+            if camera then
+                camera.CameraType =
+                    Enum.CameraType.Scriptable
+
+                if frameA.camera
+                    and frameB.camera then
+
+                    camera.CFrame =
+                        frameA.camera:Lerp(
+                            frameB.camera,
+                            alpha
+                        )
+                        + replay.offset
+
+                    camera.FieldOfView =
+                        frameA.fov
+                        + (
+                            frameB.fov
+                            - frameA.fov
+                        )
+                        * alpha
+
+                elseif frameA.camera then
+                    camera.CFrame =
+                        frameA.camera
+                        + replay.offset
+
+                    camera.FieldOfView =
+                        frameA.fov
+                end
+            end
+
+            updateReplayStatus(
+                "▶ Take "
+                .. tostring(
+                    take.number
+                )
+                .. "  "
+                .. string.format(
+                    "%.1f / %.1fs",
+                    elapsed,
+                    take.duration
+                ),
+                Colors.Accent
+            )
+        end)
+end
+
+local function deleteLastRecording()
+    if replay.recording
+        or replay.playing then
+
+        return
+    end
+
+    local take =
+        table.remove(
+            replay.takes,
+            #replay.takes
+        )
+
+    if not take then
+        updateReplayStatus(
+            "No recording to delete",
+            Colors.Danger
+        )
+
+        return
+    end
+
+    if take.templateFolder then
+        take.templateFolder:Destroy()
+    end
+
+    if take.mapTemplate then
+        take.mapTemplate:Destroy()
+    end
+
+    updateReplayStatus(
+        "Deleted Take "
+        .. tostring(
+            take.number
+        ),
+        Colors.SubText
+    )
+end
+
 track(
     UserInputService.JumpRequest:Connect(function()
+
+        if replay.playing then
+            return
+        end
+
         if movement.infiniteJump
             and humanoid
             and not safety.underground then
@@ -3191,9 +4459,14 @@ track(
 
 track(
     RunService.Heartbeat:Connect(function()
+
         if not humanoid
             or not rootPart then
 
+            return
+        end
+
+        if replay.playing then
             return
         end
 
@@ -3274,6 +4547,7 @@ track(
 
 track(
     player.CharacterAdded:Connect(function()
+
         destroySpin()
         destroyUndergroundForce()
 
@@ -3345,7 +4619,8 @@ track(
 
         if movement.speedEnabled
             and not coinFarm.enabled
-            and not safety.underground then
+            and not safety.underground
+            and not replay.playing then
 
             humanoid.WalkSpeed =
                 movement.speed
@@ -3358,7 +4633,17 @@ local function cleanup()
         return
     end
 
-    alive = false
+    if replay.recording then
+        replay.recording =
+            false
+    end
+
+    if replay.playing then
+        stopReplay()
+    end
+
+    alive =
+        false
 
     sheriff.quickShot =
         false
@@ -3416,6 +4701,43 @@ local function cleanup()
 
     destroyCoinPlatform()
 
+    for _, take in ipairs(
+        replay.takes
+    ) do
+        if take.templateFolder then
+            pcall(function()
+                take.templateFolder:Destroy()
+            end)
+        end
+
+        if take.mapTemplate then
+            pcall(function()
+                take.mapTemplate:Destroy()
+            end)
+        end
+    end
+
+    table.clear(
+        replay.takes
+    )
+
+    if replay.currentTake then
+        if replay.currentTake.templateFolder then
+            pcall(function()
+                replay.currentTake.templateFolder:Destroy()
+            end)
+        end
+
+        if replay.currentTake.mapTemplate then
+            pcall(function()
+                replay.currentTake.mapTemplate:Destroy()
+            end)
+        end
+    end
+
+    replay.currentTake =
+        nil
+
     for targetPlayer, connection in pairs(
         esp.characterConnections
     ) do
@@ -3430,12 +4752,14 @@ local function cleanup()
         bagTextConnections
     ) do
         disconnect(connection)
+
         bagTextConnections[object] =
             nil
     end
 
     if humanoid then
         pcall(function()
+
             humanoid.WalkSpeed =
                 originalWalkSpeed
 
@@ -3611,6 +4935,7 @@ local function validateKey(key)
 
     local success, valid, data =
         pcall(function()
+
             return vampauthClient:Check(
                 key
             )
@@ -3693,7 +5018,8 @@ local authGradient =
     create(
         "UIGradient",
         {
-            Rotation = -24,
+            Rotation =
+                -24,
 
             Color =
                 ColorSequence.new({
@@ -4504,7 +5830,16 @@ buildChooser = function()
                     0,
 
                 Text =
-                    "",
+                    "▣\nPC",
+
+                TextColor3 =
+                    Colors.Text,
+
+                TextSize =
+                    16,
+
+                Font =
+                    Enum.Font.GothamBold,
 
                 AutoButtonColor =
                     false
@@ -4518,155 +5853,6 @@ buildChooser = function()
     )
 
     addStroke(
-        pcButton
-    )
-
-    local monitor =
-        create(
-            "Frame",
-            {
-                AnchorPoint =
-                    Vector2.new(
-                        0.5,
-                        0
-                    ),
-
-                Position =
-                    UDim2.new(
-                        0.5,
-                        0,
-                        0,
-                        17
-                    ),
-
-                Size =
-                    UDim2.fromOffset(
-                        66,
-                        43
-                    ),
-
-                BackgroundTransparency =
-                    1
-            },
-            pcButton
-        )
-
-    addCorner(
-        monitor,
-        6
-    )
-
-    addStroke(
-        monitor,
-        Colors.Text,
-        3,
-        0
-    )
-
-    create(
-        "Frame",
-        {
-            AnchorPoint =
-                Vector2.new(
-                    0.5,
-                    0
-                ),
-
-            Position =
-                UDim2.new(
-                    0.5,
-                    0,
-                    0,
-                    61
-                ),
-
-            Size =
-                UDim2.fromOffset(
-                    5,
-                    13
-                ),
-
-            BackgroundColor3 =
-                Colors.Text,
-
-            BorderSizePixel =
-                0
-        },
-        pcButton
-    )
-
-    local monitorBase =
-        create(
-            "Frame",
-            {
-                AnchorPoint =
-                    Vector2.new(
-                        0.5,
-                        0
-                    ),
-
-                Position =
-                    UDim2.new(
-                        0.5,
-                        0,
-                        0,
-                        73
-                    ),
-
-                Size =
-                    UDim2.fromOffset(
-                        31,
-                        4
-                    ),
-
-                BackgroundColor3 =
-                    Colors.Text,
-
-                BorderSizePixel =
-                    0
-            },
-            pcButton
-        )
-
-    addCorner(
-        monitorBase,
-        2
-    )
-
-    create(
-        "TextLabel",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    0,
-                    1,
-                    -35
-                ),
-
-            Size =
-                UDim2.new(
-                    1,
-                    0,
-                    0,
-                    22
-                ),
-
-            BackgroundTransparency =
-                1,
-
-            Text =
-                "PC",
-
-            TextColor3 =
-                Colors.Text,
-
-            TextSize =
-                15,
-
-            Font =
-                Enum.Font.GothamBold
-        },
         pcButton
     )
 
@@ -4700,7 +5886,16 @@ buildChooser = function()
                     0,
 
                 Text =
-                    "",
+                    "▯\nPHONE",
+
+                TextColor3 =
+                    Colors.Text,
+
+                TextSize =
+                    16,
+
+                Font =
+                    Enum.Font.GothamBold,
 
                 AutoButtonColor =
                     false
@@ -4714,117 +5909,6 @@ buildChooser = function()
     )
 
     addStroke(
-        phoneButton
-    )
-
-    local phoneDrawing =
-        create(
-            "Frame",
-            {
-                AnchorPoint =
-                    Vector2.new(
-                        0.5,
-                        0
-                    ),
-
-                Position =
-                    UDim2.new(
-                        0.5,
-                        0,
-                        0,
-                        14
-                    ),
-
-                Size =
-                    UDim2.fromOffset(
-                        36,
-                        60
-                    ),
-
-                BackgroundTransparency =
-                    1
-            },
-            phoneButton
-        )
-
-    addCorner(
-        phoneDrawing,
-        7
-    )
-
-    addStroke(
-        phoneDrawing,
-        Colors.Text,
-        3,
-        0
-    )
-
-    create(
-        "Frame",
-        {
-            AnchorPoint =
-                Vector2.new(
-                    0.5,
-                    0
-                ),
-
-            Position =
-                UDim2.new(
-                    0.5,
-                    0,
-                    0,
-                    6
-                ),
-
-            Size =
-                UDim2.fromOffset(
-                    11,
-                    2
-                ),
-
-            BackgroundColor3 =
-                Colors.Text,
-
-            BorderSizePixel =
-                0
-        },
-        phoneDrawing
-    )
-
-    create(
-        "TextLabel",
-        {
-            Position =
-                UDim2.new(
-                    0,
-                    0,
-                    1,
-                    -35
-                ),
-
-            Size =
-                UDim2.new(
-                    1,
-                    0,
-                    0,
-                    22
-                ),
-
-            BackgroundTransparency =
-                1,
-
-            Text =
-                "PHONE",
-
-            TextColor3 =
-                Colors.Text,
-
-            TextSize =
-                15,
-
-            Font =
-                Enum.Font.GothamBold
-        },
         phoneButton
     )
 
@@ -4874,10 +5958,12 @@ buildMainMenu = function(deviceMode)
         deviceMode == "Phone"
 
     local compactHeight =
-        isPhone and 42 or 42
+        42
 
     local sliderHeight =
-        isPhone and 68 or 60
+        isPhone
+        and 68
+        or 60
 
     local menu =
         create(
@@ -4904,15 +5990,17 @@ buildMainMenu = function(deviceMode)
                         -20
                     )
                     or UDim2.fromOffset(
-                        730,
-                        475
+                        750,
+                        500
                     ),
 
                 BackgroundColor3 =
                     Colors.Background,
 
                 BackgroundTransparency =
-                    isPhone and 0.12 or 0.09,
+                    isPhone
+                    and 0.12
+                    or 0.09,
 
                 BorderSizePixel =
                     0,
@@ -4939,7 +6027,9 @@ buildMainMenu = function(deviceMode)
     )
 
     local headerHeight =
-        isPhone and 52 or 58
+        isPhone
+        and 52
+        or 58
 
     local header =
         create(
@@ -5038,7 +6128,9 @@ buildMainMenu = function(deviceMode)
                 Colors.Text,
 
             TextSize =
-                isPhone and 17 or 18,
+                isPhone
+                and 17
+                or 18,
 
             Font =
                 Enum.Font.GothamBold,
@@ -5220,7 +6312,7 @@ buildMainMenu = function(deviceMode)
                             1,
                             -14,
                             0,
-                            75
+                            112
                         ),
 
                     BackgroundTransparency =
@@ -5264,7 +6356,7 @@ buildMainMenu = function(deviceMode)
                             0,
                             7,
                             0,
-                            headerHeight + 87
+                            headerHeight + 124
                         ),
 
                     Size =
@@ -5272,7 +6364,7 @@ buildMainMenu = function(deviceMode)
                             1,
                             -14,
                             1,
-                            -(headerHeight + 94)
+                            -(headerHeight + 131)
                         ),
 
                     BackgroundTransparency =
@@ -5322,7 +6414,7 @@ buildMainMenu = function(deviceMode)
                 Padding =
                     UDim.new(
                         0,
-                        6
+                        5
                     ),
 
                 HorizontalAlignment =
@@ -5340,7 +6432,7 @@ buildMainMenu = function(deviceMode)
                 PaddingTop =
                     UDim.new(
                         0,
-                        11
+                        9
                     )
             },
             navHolder
@@ -5413,7 +6505,9 @@ buildMainMenu = function(deviceMode)
                         Enum.AutomaticSize.Y,
 
                     ScrollBarThickness =
-                        isPhone and 2 or 3,
+                        isPhone
+                        and 2
+                        or 3,
 
                     ScrollBarImageColor3 =
                         Colors.Accent
@@ -5427,7 +6521,9 @@ buildMainMenu = function(deviceMode)
                 Padding =
                     UDim.new(
                         0,
-                        isPhone and 7 or 10
+                        isPhone
+                        and 7
+                        or 10
                     ),
 
                 SortOrder =
@@ -5442,19 +6538,25 @@ buildMainMenu = function(deviceMode)
                 PaddingLeft =
                     UDim.new(
                         0,
-                        isPhone and 4 or 13
+                        isPhone
+                        and 4
+                        or 13
                     ),
 
                 PaddingRight =
                     UDim.new(
                         0,
-                        isPhone and 4 or 13
+                        isPhone
+                        and 4
+                        or 13
                     ),
 
                 PaddingTop =
                     UDim.new(
                         0,
-                        isPhone and 5 or 13
+                        isPhone
+                        and 5
+                        or 13
                     ),
 
                 PaddingBottom =
@@ -5526,7 +6628,7 @@ buildMainMenu = function(deviceMode)
                         )
                         or UDim2.fromOffset(
                             137,
-                            39
+                            36
                         ),
 
                     BackgroundColor3 =
@@ -5547,7 +6649,9 @@ buildMainMenu = function(deviceMode)
                         or Colors.SubText,
 
                     TextSize =
-                        isPhone and 10 or 11,
+                        isPhone
+                        and 9
+                        or 11,
 
                     Font =
                         Enum.Font.GothamMedium,
@@ -5568,6 +6672,7 @@ buildMainMenu = function(deviceMode)
 
         track(
             button.MouseButton1Click:Connect(function()
+
                 showPage(
                     name
                 )
@@ -5642,7 +6747,9 @@ buildMainMenu = function(deviceMode)
                 Padding =
                     UDim.new(
                         0,
-                        isPhone and 7 or 8
+                        isPhone
+                        and 7
+                        or 8
                     )
             },
             holder
@@ -5654,25 +6761,33 @@ buildMainMenu = function(deviceMode)
                 PaddingLeft =
                     UDim.new(
                         0,
-                        isPhone and 8 or 12
+                        isPhone
+                        and 8
+                        or 12
                     ),
 
                 PaddingRight =
                     UDim.new(
                         0,
-                        isPhone and 8 or 12
+                        isPhone
+                        and 8
+                        or 12
                     ),
 
                 PaddingTop =
                     UDim.new(
                         0,
-                        isPhone and 8 or 11
+                        isPhone
+                        and 8
+                        or 11
                     ),
 
                 PaddingBottom =
                     UDim.new(
                         0,
-                        isPhone and 8 or 11
+                        isPhone
+                        and 8
+                        or 11
                     )
             },
             holder
@@ -5699,7 +6814,9 @@ buildMainMenu = function(deviceMode)
                     Colors.Text,
 
                 TextSize =
-                    isPhone and 13 or 14,
+                    isPhone
+                    and 13
+                    or 14,
 
                 Font =
                     Enum.Font.GothamBold,
@@ -5777,6 +6894,7 @@ buildMainMenu = function(deviceMode)
 
         track(
             button.MouseButton1Click:Connect(function()
+
                 if callback then
                     callback()
                 end
@@ -5890,8 +7008,13 @@ buildMainMenu = function(deviceMode)
 
                     Size =
                         UDim2.fromOffset(
-                            isPhone and 44 or 40,
-                            isPhone and 24 or 22
+                            isPhone
+                            and 44
+                            or 40,
+
+                            isPhone
+                            and 24
+                            or 22
                         ),
 
                     BorderSizePixel =
@@ -5906,7 +7029,9 @@ buildMainMenu = function(deviceMode)
         )
 
         local dotSize =
-            isPhone and 18 or 16
+            isPhone
+            and 18
+            or 16
 
         local dot =
             create(
@@ -5980,7 +7105,10 @@ buildMainMenu = function(deviceMode)
             return state
         end
 
-        function controller:Set(value, runCallback)
+        function controller:Set(
+            value,
+            runCallback
+        )
             state =
                 value == true
 
@@ -5997,6 +7125,7 @@ buildMainMenu = function(deviceMode)
 
         track(
             row.MouseButton1Click:Connect(function()
+
                 controller:Set(
                     not state,
                     true
@@ -6143,7 +7272,9 @@ buildMainMenu = function(deviceMode)
                             0,
                             13,
                             1,
-                            isPhone and -22 or -18
+                            isPhone
+                            and -22
+                            or -18
                         ),
 
                     Size =
@@ -6151,7 +7282,9 @@ buildMainMenu = function(deviceMode)
                             1,
                             -26,
                             0,
-                            isPhone and 10 or 7
+                            isPhone
+                            and 10
+                            or 7
                         ),
 
                     BackgroundColor3 =
@@ -6198,8 +7331,13 @@ buildMainMenu = function(deviceMode)
 
                     Size =
                         UDim2.fromOffset(
-                            isPhone and 22 or 18,
-                            isPhone and 22 or 18
+                            isPhone
+                            and 22
+                            or 18,
+
+                            isPhone
+                            and 22
+                            or 18
                         ),
 
                     BackgroundColor3 =
@@ -6265,7 +7403,8 @@ buildMainMenu = function(deviceMode)
                 math.floor(
                     minimum
                     + (
-                        maximum - minimum
+                        maximum
+                        - minimum
                     ) * percent
                     + 0.5
                 )
@@ -6273,9 +7412,7 @@ buildMainMenu = function(deviceMode)
             refresh()
 
             if callback then
-                callback(
-                    value
-                )
+                callback(value)
             end
         end
 
@@ -6300,19 +7437,16 @@ buildMainMenu = function(deviceMode)
         end
 
         track(
-            bar.InputBegan:Connect(
-                begin
-            )
+            bar.InputBegan:Connect(begin)
         )
 
         track(
-            knob.InputBegan:Connect(
-                begin
-            )
+            knob.InputBegan:Connect(begin)
         )
 
         track(
             UserInputService.InputChanged:Connect(function(input)
+
                 if dragging
                     and (
                         input.UserInputType
@@ -6330,6 +7464,7 @@ buildMainMenu = function(deviceMode)
 
         track(
             UserInputService.InputEnded:Connect(function(input)
+
                 if input.UserInputType
                         == Enum.UserInputType.MouseButton1
                     or input.UserInputType
@@ -6357,6 +7492,9 @@ buildMainMenu = function(deviceMode)
     local CoinPage =
         createPage("Coin Grab")
 
+    local ReplayPage =
+        createPage("Replay Studio")
+
     local SafetyPage =
         createPage("Safety")
 
@@ -6371,6 +7509,7 @@ buildMainMenu = function(deviceMode)
     createNav("Murderer")
     createNav("Innocent")
     createNav("Coin Grab")
+    createNav("Replay Studio")
     createNav("Safety")
     createNav("Updates")
     createNav("Utility")
@@ -6425,6 +7564,7 @@ buildMainMenu = function(deviceMode)
         "Aim Bot",
         sheriff.quickShot,
         function(value)
+
             sheriff.quickShot =
                 value
         end
@@ -6474,7 +7614,10 @@ buildMainMenu = function(deviceMode)
     local autoGunToggle1
     local autoGunToggle2
 
-    local function setAutoGun(value, source)
+    local function setAutoGun(
+        value,
+        source
+    )
         gunPickup.auto =
             value
 
@@ -6503,6 +7646,7 @@ buildMainMenu = function(deviceMode)
             "Auto Pick Up Gun",
             gunPickup.auto,
             function(value)
+
                 setAutoGun(
                     value,
                     autoGunToggle1
@@ -6520,6 +7664,7 @@ buildMainMenu = function(deviceMode)
         murdererSection,
         "Throw Knife",
         function()
+
             task.spawn(
                 throwKnifeOnce
             )
@@ -6531,6 +7676,7 @@ buildMainMenu = function(deviceMode)
         "Auto Throw Knife",
         murderer.autoThrow,
         function(value)
+
             murderer.autoThrow =
                 value
         end
@@ -6546,6 +7692,7 @@ buildMainMenu = function(deviceMode)
             * 100
         ),
         function(value)
+
             murderer.throwDelay =
                 value / 100
         end
@@ -6562,6 +7709,7 @@ buildMainMenu = function(deviceMode)
         "ESP",
         esp.enabled,
         function(value)
+
             if value then
                 enableESP()
             else
@@ -6588,6 +7736,7 @@ buildMainMenu = function(deviceMode)
             "Auto Pick Up Gun",
             gunPickup.auto,
             function(value)
+
                 setAutoGun(
                     value,
                     autoGunToggle2
@@ -6606,6 +7755,7 @@ buildMainMenu = function(deviceMode)
         "Speed",
         movement.speedEnabled,
         function(value)
+
             setSpeedEnabled(
                 value
             )
@@ -6619,9 +7769,8 @@ buildMainMenu = function(deviceMode)
         250,
         movement.speed,
         function(value)
-            setSpeed(
-                value
-            )
+
+            setSpeed(value)
         end
     )
 
@@ -6630,6 +7779,7 @@ buildMainMenu = function(deviceMode)
         "Infinite Jump",
         movement.infiniteJump,
         function(value)
+
             movement.infiniteJump =
                 value
         end
@@ -6640,6 +7790,7 @@ buildMainMenu = function(deviceMode)
         "Noclip",
         localCollision.sources.noclip,
         function(value)
+
             setCollisionSource(
                 "noclip",
                 value
@@ -6652,6 +7803,7 @@ buildMainMenu = function(deviceMode)
         "Spin Bot",
         movement.spin,
         function(value)
+
             setSpinEnabled(
                 value
             )
@@ -6665,9 +7817,8 @@ buildMainMenu = function(deviceMode)
         1500,
         movement.spinSpeed,
         function(value)
-            setSpinSpeed(
-                value
-            )
+
+            setSpinSpeed(value)
         end
     )
 
@@ -6682,6 +7833,7 @@ buildMainMenu = function(deviceMode)
         "Coin Farm",
         coinFarm.enabled,
         function(value)
+
             setCoinFarmEnabled(
                 value
             )
@@ -6747,6 +7899,140 @@ buildMainMenu = function(deviceMode)
         end
     end)
 
+    local replaySection =
+        createSection(
+            ReplayPage,
+            "Replay Studio"
+        )
+
+    replay.statusLabel =
+        create(
+            "TextLabel",
+            {
+                Size =
+                    UDim2.new(
+                        1,
+                        0,
+                        0,
+                        42
+                    ),
+
+                BackgroundColor3 =
+                    Colors.Control,
+
+                BackgroundTransparency =
+                    0.04,
+
+                BorderSizePixel =
+                    0,
+
+                Text =
+                    "Ready • 0 recordings",
+
+                TextColor3 =
+                    Colors.SubText,
+
+                TextSize =
+                    11,
+
+                TextWrapped =
+                    true,
+
+                Font =
+                    Enum.Font.GothamMedium
+            },
+            replaySection
+        )
+
+    addCorner(
+        replay.statusLabel,
+        8
+    )
+
+    createAction(
+        replaySection,
+        "Start Recording",
+        function()
+
+            startRecording()
+        end
+    )
+
+    createAction(
+        replaySection,
+        "Stop Recording",
+        function()
+
+            stopRecording()
+        end
+    )
+
+    createAction(
+        replaySection,
+        "View Recorded",
+        function()
+
+            viewRecorded()
+        end
+    )
+
+    createAction(
+        replaySection,
+        "Stop Replay",
+        function()
+
+            stopReplay()
+        end
+    )
+
+    createAction(
+        replaySection,
+        "Delete Last Recording",
+        function()
+
+            deleteLastRecording()
+        end,
+        true
+    )
+
+    create(
+        "TextLabel",
+        {
+            Size =
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    54
+                ),
+
+            BackgroundTransparency =
+                1,
+
+            Text =
+                "Records player position, rotation, body pose, avatar, names and your camera. Map is frozen when recording starts. Maximum 120 seconds per take.",
+
+            TextWrapped =
+                true,
+
+            TextColor3 =
+                Colors.SubText,
+
+            TextSize =
+                10,
+
+            Font =
+                Enum.Font.Gotham,
+
+            TextXAlignment =
+                Enum.TextXAlignment.Left,
+
+            TextYAlignment =
+                Enum.TextYAlignment.Top
+        },
+        replaySection
+    )
+
     local safetySection =
         createSection(
             SafetyPage,
@@ -6758,6 +8044,7 @@ buildMainMenu = function(deviceMode)
         "Anti Fling",
         antiFling.enabled,
         function(value)
+
             if value then
                 enableAntiFling()
             else
@@ -6771,6 +8058,7 @@ buildMainMenu = function(deviceMode)
         "Underground Safe Mode",
         safety.underground,
         function(value)
+
             if value then
                 enableUnderground()
             else
@@ -6788,22 +8076,28 @@ buildMainMenu = function(deviceMode)
         )
 
     local updateLines = {
-        "full menu restored",
-        "cleaner gray transparent mod-menu style",
-        "phone pages now scroll",
-        "phone sliders are bigger",
-        "aim bot shoots only where you click/tap",
-        "knife throw uses current cursor aim without locking it",
-        "spin bot uses Y-only rotation so it does not tip you",
-        "noclip uses event-driven collision handling",
-        "anti fling caches other-player parts",
+        "added Replay Studio",
+        "restored Coin Bag Full watcher",
+        "Coin Bag Full automatically resets and resumes farm",
+        "records all players at 20 samples per second",
+        "replays avatar position and body pose",
+        "replays recorded names and camera",
+        "replay uses a frozen copy of the map",
+        "up to 120 seconds per recording",
+        "keeps newest 2 recordings this session",
+        "gray transparent mod-menu style",
+        "phone pages scroll properly",
+        "phone sliders are larger",
+        "spin bot uses Y-only rotation",
+        "aim bot shoots where you manually click or tap",
+        "knife throw uses current cursor without locking it",
+        "noclip uses shared collision handling",
+        "anti fling caches player parts",
         "gun drop detection is cached",
         "coin farm uses cached MainCoin objects",
-        "coin farm chooses the closest fully visible MainCoin",
-        "coin farm travels between coins at speed 20",
-        "coin farm stays 9 studs underneath before going up",
-        "coin bag full detection is cached instead of rescanning every frame",
-        "gun pickup toggles stay synchronized"
+        "coin farm only targets fully visible MainCoin parts",
+        "coin farm moves at speed 20",
+        "coin farm stays 9 studs under each coin"
     }
 
     for _, text in ipairs(
@@ -6827,7 +8121,8 @@ buildMainMenu = function(deviceMode)
                     1,
 
                 Text =
-                    "• " .. text,
+                    "• "
+                    .. text,
 
                 TextColor3 =
                     Colors.SubText,
@@ -6858,6 +8153,7 @@ buildMainMenu = function(deviceMode)
         utilitySection,
         "Copy Server ID",
         function()
+
             if setclipboard then
                 pcall(function()
                     setclipboard(
@@ -6879,7 +8175,9 @@ buildMainMenu = function(deviceMode)
         utilitySection,
         "Rejoin Server",
         function()
+
             pcall(function()
+
                 TeleportService:TeleportToPlaceInstance(
                     game.PlaceId,
                     game.JobId,
@@ -6893,6 +8191,7 @@ buildMainMenu = function(deviceMode)
         utilitySection,
         "Reset Character",
         function()
+
             if humanoid then
                 humanoid.Health =
                     0
@@ -6904,6 +8203,7 @@ buildMainMenu = function(deviceMode)
         utilitySection,
         "Unload Menu",
         function()
+
             _G.THHGrowersHardUnloaded =
                 true
 
@@ -6988,6 +8288,7 @@ buildMainMenu = function(deviceMode)
 
     track(
         minimizeButton.MouseButton1Click:Connect(function()
+
             setMenuVisible(
                 false
             )
@@ -6996,6 +8297,7 @@ buildMainMenu = function(deviceMode)
 
     track(
         closeButton.MouseButton1Click:Connect(function()
+
             setMenuVisible(
                 false
             )
@@ -7005,6 +8307,7 @@ buildMainMenu = function(deviceMode)
     if floatingButton then
         track(
             floatingButton.MouseButton1Click:Connect(function()
+
                 setMenuVisible(
                     true
                 )
